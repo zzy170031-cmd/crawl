@@ -7,7 +7,11 @@ import { Tasks, hash } from "../app/tasks.mjs";
 import { Model } from "../app/model.mjs";
 import { collectionTargets, categories } from "../app/categories.mjs";
 import { sortRows } from "../app/sorting.mjs";
-import { validatePlan } from "../app/contracts.mjs";
+import {
+  validatePlan,
+  validateSchema,
+  mediaSchema,
+} from "../app/contracts.mjs";
 import { deliver, composeRows } from "../app/delivery.mjs";
 const folder = () => mkdtemp(join(tmpdir(), "crawl-test-"));
 export const examplePlan = () => ({
@@ -15,14 +19,14 @@ export const examplePlan = () => ({
   meaning: "合成测试素材，不是真实热点",
   fit: "player_context",
   rationale: "测试理由",
-  evidence_ids: ["video:12345678901"],
+  evidence_ids: ["video:12345678901", "web:game"],
   blocking_gaps: [],
   ideas: [
     {
       title: "原创测试方案",
       hook: "测试开头",
       bridge: "玩家处境",
-      evidence_ids: ["video:12345678901"],
+      evidence_ids: ["video:12345678901", "web:game"],
       script: "甲：今晚还来吗？\n乙：忙完就来。",
       shots: [
         {
@@ -44,6 +48,14 @@ export const examplePlan = () => ({
   ],
 });
 const evidence = [
+  {
+    id: "web:game",
+    kind: "web",
+    role: "game",
+    url: "https://example.com/game",
+    title: "合成游戏资料",
+    read_at: "2026-10-18",
+  },
   {
     id: "video:12345678901",
     source_id: "12345678901",
@@ -134,7 +146,10 @@ test("完整文案与所有原片引用保留，不截成五条或5000字", () =
   const draft = composeRows(
     { payload: { mode: "A" } },
     p,
-    Array.from({ length: 8 }, (_, i) => ({ ...evidence[0], id: "video:" + i })),
+    Array.from({ length: 8 }, (_, i) => ({
+      ...evidence.find((e) => e.kind === "video"),
+      id: "video:" + i,
+    })),
   );
   assert(draft.rows.some((r) => r[1] === p.ideas[0].script));
   assert.equal(draft.links.length, 8);
@@ -280,4 +295,26 @@ test("二进制哈希与真实音轨SHA一致", () => {
     hash(Buffer.from("abc")),
     "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
   );
+});
+
+test("空画面观察与缺少热点引用的方案不能通过", () => {
+  assert.throws(
+    () =>
+      validateSchema(
+        {
+          summary: "仅标题",
+          observations: [],
+          speech_notes: "",
+          creative_methods: [],
+          uncertainties: [],
+          blocking_gaps: [],
+          needs_audio_review: false,
+        },
+        mediaSchema,
+      ),
+    /实际观察/,
+  );
+  const p = examplePlan();
+  p.evidence_ids = ["web:game"];
+  assert.throws(() => validatePlan(p, evidence, "测试游戏"), /同时引用/);
 });

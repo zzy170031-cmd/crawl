@@ -10,7 +10,7 @@ export const list = (items) => ({ type: "array", items });
 export const observation = object({ time: { type: "number" }, text: string });
 export const mediaSchema = object({
   summary: string,
-  observations: list(observation),
+  observations: { ...list(observation), minItems: 1 },
   speech_notes: string,
   creative_methods: strings,
   uncertainties: strings,
@@ -82,6 +82,8 @@ export function validateSchema(value, schema, path = "result") {
   }
   if (schema.type === "array") {
     if (!Array.isArray(value)) throw Error(path + "需为列表");
+    if (schema.minItems && value.length < schema.minItems)
+      throw Error(path + "缺少实际观察");
     value.forEach((v, i) =>
       validateSchema(v, schema.items, path + "[" + i + "]"),
     );
@@ -118,6 +120,11 @@ export function validateProfile(value, evidence, game) {
     for (const c of value[key]) {
       if (!c.text.trim()) throw Error("游戏结论为空");
       requireRefs(c.evidence_ids, ids);
+      if (
+        key !== "game_facts" &&
+        !c.evidence_ids.some((id) => value.relevant_video_ids.includes(id))
+      )
+        throw Error("玩家与创作结论必须引用实际相关游戏作品");
     }
   }
   return value;
@@ -133,8 +140,15 @@ export function validatePlan(value, evidence, game) {
   )
     return value;
   if (!value.ideas.length) throw Error("缺少完整方案");
+  const requireBoth = (refs) => {
+    for (const role of ["hotspot", "game"])
+      if (!evidence.some((e) => e.role === role && refs.includes(e.id)))
+        throw Error("方案必须同时引用热点实读和游戏依据");
+  };
+  requireBoth(value.evidence_ids);
   for (const idea of value.ideas) {
     requireRefs(idea.evidence_ids, ids);
+    requireBoth(idea.evidence_ids);
     if (
       !idea.title.trim() ||
       !idea.bridge.trim() ||

@@ -178,7 +178,12 @@ export function startWorker(
           throw new NeedsInput("热点关键内容读取不足，需要补充原片或核验声音");
         const evidence = [
           ...hot,
-          ...profile.evidence.map((e) => ({ ...e, role: "game" })),
+          ...profile.evidence
+            .filter(
+              (e) =>
+                e.kind !== "video" || profile.relevant_video_ids.includes(e.id),
+            )
+            .map((e) => ({ ...e, role: "game" })),
         ];
         stage("热点与游戏结合");
         const key =
@@ -194,7 +199,7 @@ export function startWorker(
         const plan = await cached(key, async () =>
           validatePlan(
             await model.json(
-              "只做A爆款改编或B热点联动，不做常态指南。先判断热点代表作品确实在讲用户选题，若不相关或语境缺失设insufficient。依据已读内容与游戏资料，分别考虑直接结合、玩家处境、表达手法借用，不按标题字词套模板。游戏机制和人物不可以从其他游戏移植。输出约3个实质不同方案，每案完整原创台词/文案、分镜(或图文页)、素材、低中高投入与观看收益，不能只留提纲。A另保留原片结构迁移。没有素材的方案标待补，未验证玩法不得写成事实。引用只能使用给定evidence id。",
+              "只做A爆款改编或B热点联动，不做常态指南。先判断热点代表作品确实在讲用户选题，若不相关或语境缺失设insufficient。依据已读内容与游戏资料，分别考虑直接结合、玩家处境、表达手法借用，不按标题字词套模板。游戏机制和人物不可以从其他游戏移植。输出约3个实质不同方案，每案完整原创台词/文案、分镜(或图文页)、素材、低中高投入与观看收益，不能只留提纲。A另保留原片结构迁移。没有素材的方案标待补，未验证玩法不得写成事实。引用只能使用给定evidence id；整体和每案evidence_ids都必须同时包含role为hotspot的原片与role为game的游戏依据。",
               {
                 mode: p.mode,
                 format: p.format,
@@ -210,6 +215,7 @@ export function startWorker(
             game,
           ),
         );
+        validatePlan(plan, evidence, game);
         if (
           ["insufficient", "unsuitable"].includes(plan.fit) ||
           plan.blocking_gaps.length
