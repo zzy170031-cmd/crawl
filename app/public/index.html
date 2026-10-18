@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>热点游戏创作台</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="brand">CRAWL / 热点游戏创作台</span
+        ><span class="badge">本地运行 · 待真实验收</span>
+      </header>
+      <section class="hero">
+        <p class="eyebrow">先理解，再创作</p>
+        <h1>让热点成为你的游戏故事。</h1>
+        <p>学习游戏 → 选定热点 → 阅读代表作品 → 生成详细策划 → 腾讯文档交付</p>
+      </section>
+      <section class="creator-settings">
+        <label for="game">目标游戏</label
+        ><input id="game" placeholder="例如：率土之滨" maxlength="40" /><button
+          id="learn"
+        >
+          学习游戏传播</button
+        ><button id="relearn">更新学习</button>
+      </section>
+      <p id="profile" class="hint"></p>
+      <details>
+        <summary>腾讯文档交付设置</summary>
+        <p>只填写作为交付目标的腾讯在线表格。访问令牌由本机环境配置。</p>
+        <label>表格 file_id <input id="file-id" /></label
+        ><label
+          >表格链接
+          <input
+            id="doc-url"
+            placeholder="https://docs.qq.com/sheet/…" /></label
+        ><button id="save-settings">保存交付位置</button>
+      </details>
+      <section class="filters">
+        <input id="query" placeholder="关键词可选" /><select
+          id="board"
+          aria-label="榜单"
+        >
+          <option value="">全部榜单</option>
+          <option value="1001">视频总榜</option>
+          <option value="1002">低粉爆款</option>
+          <option value="1003">高完播率</option>
+          <option value="1004">高涨粉率</option>
+          <option value="1005">高点赞率</option>
+          <option value="2001">话题榜</option>
+          <option value="2002">飙升话题</option>
+          <option value="3001">搜索榜</option>
+          <option value="3002">飙升搜索</option></select
+        ><select id="hours" aria-label="时间">
+          <option value="24">近1天</option>
+          <option value="1">近1小时</option>
+          <option value="72">近3天</option>
+          <option value="168">近7天</option></select
+        ><select id="category" aria-label="一级行业">
+          <option value="all">不限行业</option></select
+        ><select id="sort" aria-label="排序">
+          <option value="heat_desc">热度高到低（同榜）</option>
+          <option value="heat_asc">热度低到高（同榜）</option>
+          <option value="newest">采集时间</option></select
+        ><button id="search">获取热点</button
+        ><button id="local">本地筛选</button
+        ><button id="subscribe">每小时刷新此范围</button>
+      </section>
+      <p class="hint">
+        跨榜热度不可直接比较。查询结果为对应榜单首屏，不代表抖音全站结果。
+      </p>
+      <details>
+        <summary>每小时刷新范围</summary>
+        <div id="subscriptions"></div>
+      </details>
+      <p id="message" role="status"></p>
+      <section id="jobs"></section>
+      <section id="list" class="grid"></section>
+      <footer>
+        服务及专用浏览器运行且账号已登录时执行采集；休眠或关闭服务时暂停。媒体为抽样画面与自动语音，缺少关键证据时会停止对应策划。
+      </footer>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,4 @@
+interface:
+  display_name: "抖音热点游戏创作"
+  short_description: "实读热门作品，结合目标游戏生成完整腾讯策划"
+  default_prompt: "使用 $douyin-hotspot-game-creation 学习目标游戏并将已确认热点转化为有原片依据的完整策划。"

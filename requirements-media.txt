@@ -1,0 +1,5 @@
+# CPU ASR runs on macOS ARM64 and Windows; model must already be cached.
+faster-whisper==1.2.1
+ctranslate2==4.6.0
+av==16.0.1
+numpy==2.2.6

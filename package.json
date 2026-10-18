@@ -1,0 +1,23 @@
+{
+  "name": "crawl-hotspot-creation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env app/server.mjs",
+    "doctor": "node --env-file-if-exists=.env scripts/doctor.mjs",
+    "browser": "node --env-file-if-exists=.env scripts/browser.mjs",
+    "task": "node --env-file-if-exists=.env scripts/task.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.56.1"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
+}
