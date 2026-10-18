@@ -6,7 +6,7 @@ Apple M5 是目标验收设备，当前仓库未取得该设备运行证据。Ol
 
 根目录 `.env`：PORT、CRAWL_DATA_DIR、CRAWL_CDP_URL、CRAWL_MODEL_URL、HOTSPOT_VISION_MODEL、CRAWL_PYTHON、CRAWL_WHISPER_MODEL、CRAWL_WHISPER_CACHE、TENCENT_DOCS_TOKEN。可选 CRAWL_CHROME_PATH 指定Chrome。
 
-数据路径相对于仓库根目录；Python可执行路径建议绝对路径。模型服务和CDP只允许本机地址；网页服务只监听127.0.0.1。默认应在M5上运行整套应用，而不是让旧Windows设备远程访问M5端口。
+数据路径相对于仓库根目录；Python可执行路径建议绝对路径。模型服务和CDP只允许本机地址；网页服务只监听127.0.0.1。应在装有模型的同一台 Mac 或 Windows 上运行整套应用。另一台设备安装模型不会让当前设备的 localhost 自动可用。Windows 安装步骤见 [Windows 安装与排错](install-windows.md)。
 
 faster-whisper使用CPU int8，不假称通过Metal加速；视觉由Ollama处理，实际GPU后端和耗时需查看本机诊断及Ollama运行情况。ASR只读取现有缓存，目录/格式不匹配时明确失败。不要反复重装同名模型。
 

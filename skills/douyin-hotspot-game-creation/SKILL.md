@@ -11,6 +11,8 @@ description: 研究指定游戏在中国大陆抖音的热门作品，实读热�
 
 本技能配套 crawl 仓库的本地服务。安装技能后，设置 `CRAWL_HOME` 为仓库绝对路径，在仓库执行 `npm start`。通过 `node "$CRAWL_HOME/scripts/task.mjs"` 调用与网页相同的任务执行器。Windows PowerShell 使用 `$env:CRAWL_HOME`。具体命令及任务字段见[执行接口](references/runtime.md)。
 
+支持 macOS 与 Windows；安装时读取 `$CRAWL_HOME/README.md`，Windows 另读 `$CRAWL_HOME/docs/install-windows.md`。按操作系统选择 Python 路径；模型与服务部署在同一设备，不把另一台设备已有模型视为本机可用。
+
 先检查服务、模型、浏览器登录和腾讯交付配置。用户已配置的依赖不重复安装，不自动下载模型。能力不满足时报告具体缺口和可恢复步骤，不以完成口吻输出空模板。当前支持 Ollama Qwen3-VL 图像输入与本地 Whisper 语音转写；安装存在不是效果验收。
 
 ## 执行顺序

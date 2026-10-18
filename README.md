@@ -4,6 +4,8 @@
 
 **状态：可运行首版，待 Apple M5 与真实腾讯全链验收。** 已有共享任务执行器、持久化恢复、游戏资料版本、媒体分析检查点和受控交付。自动阅读当前为抽样画面＋自动语音，不等同全片音画理解。关键声音信息不足时任务停在待补读，不输出伪造脚本。验收范围见 [docs/acceptance.md](docs/acceptance.md)。
 
+支持 macOS 与 Windows 本机部署。Windows 完整命令见 [Windows 安装与排错](docs/install-windows.md)；两种系统使用同一任务流程，分别记录真实验收结果。
+
 ## Mac M5 安装与启动
 
 要求：macOS 14+、Node.js 24+、Python 3.11/3.12、Google Chrome；已安装并启动 Ollama，已有 `qwen3-vl:8b`；已有可供 faster-whisper 读取的 Whisper small 模型。安装其他格式的同名模型不自动兼容，诊断会明确失败，不隐式下载。
