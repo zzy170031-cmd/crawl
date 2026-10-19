@@ -77,7 +77,7 @@ test("内容组不会将当前游戏之外的来源混入展示", async () => {
     db.close();
   }
 });
-test("20个链接中的同内容双来源只算19个，学习不能ready或重复读取", async () => {
+test("20个链接中的同内容双来源只算19个，学习不能ready或重复读取", { skip: '固定 experimental_quality_hold 暂停此旧执行路径；保留原算法/交付断言，门禁由 quality-policy.test.mjs 单独覆盖' }, async () => {
   const { db, groups } = await setup();
   const rows = samples(20);
   groups.set(
@@ -107,7 +107,7 @@ test("20个链接中的同内容双来源只算19个，学习不能ready或重�
   }
 });
 
-test("旧20ID资料归组后仅19内容，API拒绝创作并新建补学任务", async () => {
+test("旧20ID资料归组后仅19内容，API在质量暂停时拒绝创作与补学并保留旧资料", async () => {
   const { folder, db, groups } = await setup(),
     rows = samples(20),
     game = "测试游戏";
@@ -183,9 +183,9 @@ test("旧20ID资料归组后仅19内容，API拒绝创作并新建补学任务",
       409,
     );
     const next = await post("/api/game-research", { game });
-    assert.equal(next.status, 202);
-    const task = await next.json();
-    assert.notEqual(task.id, old.id);
+    assert.equal(next.status, 409);
+    assert.equal((await next.json()).code, "EXPERIMENTAL_QUALITY_HOLD");
+    assert.equal(db.list().length, 1);
   } finally {
     child.kill();
     await new Promise((resolve) => {

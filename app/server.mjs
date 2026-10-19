@@ -1,3 +1,4 @@
+import {experimentalQualityHold,projectQualityHeldProfile,qualityHoldResponse} from './quality-policy.mjs';
 import { createServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -223,6 +224,11 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { token });
     if ((req.method !== "GET" || url.pathname === "/api/collector/login-view") && req.headers["x-crawl-token"] !== token)
       return json(res, 403, { error: "会话过期，请刷新" });
+    if(url.pathname==='/api/quality-policy'&&req.method==='GET')return json(res,200,{experimental_quality_hold:experimentalQualityHold()});
+    if(req.method==='POST'&&['/api/creative-jobs','/api/game-research'].includes(url.pathname)){
+      const input=await body(req);
+      return json(res,409,qualityHoldResponse(typeof input.game==='string'?db.profile(input.game.normalize('NFKC').trim()):null));
+    }
     if (req.method === "POST" && config.searchMode === "automatic" &&
       ((url.pathname === "/api/game-research" && config.gameSource !== 'redfox') || url.pathname === "/api/creative-jobs") && !readiness.status().ready)
       return json(res, 409, {error:"连接尚未就绪，请在连接设置中检查所需服务后再开始任务",code:"CONNECTIONS_NOT_READY",readiness:readiness.status()});
@@ -333,6 +339,7 @@ const server = createServer(async (req, res) => {
     if (bridgeRoute) {
       const [, id, action] = bridgeRoute;
       if (!bridge.get(id)) return json(res, 404, { error: "协作请求不存在" });
+      if (req.method === "POST" && action === "approve" && bridge.get(id).kind === "delivery") return json(res,409,qualityHoldResponse());
       if (req.method === "POST" && action === "approve")
         return json(
           res,
@@ -356,7 +363,14 @@ const server = createServer(async (req, res) => {
     if (taskRoute) {
       const [, id, action] = taskRoute;
       if (!db.get(id)) return json(res, 404, { error: "任务不存在" });
-      if (req.method === "POST" && action === "retry" && config.searchMode === "automatic" && !readiness.status().ready)
+      const existingTask = db.get(id);
+      // A verified completed receipt can be recovered read-only. No retry may
+      // restart learning, model work or an unfinished delivery during the hold.
+      const readOnlyRecovery = existingTask.type === 'create' && Boolean(bridge.completedDelivery?.(id));
+      if (req.method === 'POST' && action === 'retry' && ['learn','create'].includes(existingTask.type) && !readOnlyRecovery)
+        return json(res,409,qualityHoldResponse());
+      const localLearning = existingTask.type === 'learn' && existingTask.payload.source_provider === 'redfox';
+      if (req.method === "POST" && action === "retry" && !readOnlyRecovery && !localLearning && config.searchMode === "automatic" && !readiness.status().ready)
         return json(res, 409, {error:"连接尚未就绪，请完成连接检查后重试任务",code:"CONNECTIONS_NOT_READY",readiness:readiness.status()});
       if (req.method === "POST" && action)
         return json(
@@ -379,7 +393,7 @@ const server = createServer(async (req, res) => {
         Date.parse(existing.expires_at) > Date.now() &&
         !input.force
       )
-        return json(res, 200, { profile: existing });
+        return json(res, 200, { profile: projectQualityHeldProfile(existing) });
       return json(
         res,
         202,
@@ -408,7 +422,7 @@ const server = createServer(async (req, res) => {
         (() => {
           const p = db.profile(url.searchParams.get("game"));
           return p
-            ? {
+            ? projectQualityHeldProfile({
                 ...p,
                 independent_content_count: groups.independentCount(
                   p.relevant_video_ids || [],
@@ -420,7 +434,7 @@ const server = createServer(async (req, res) => {
                         "同内容合并后不足20个独立有效样本，请补充学习",
                     }
                   : {}),
-              }
+              })
             : null;
         })(),
       );
@@ -649,7 +663,7 @@ const server = createServer(async (req, res) => {
         if (s.enabled)
           db.subscribe({ ...s, next_at: new Date().toISOString() });
       refreshSubscriptions().catch(() => {});
-      return json(res, 202, { started: true });
+      return json(res, 202, { started: true,experimental_quality_hold:experimentalQualityHold() });
     }
     const files = {
       "/": "index.html",

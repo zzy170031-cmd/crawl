@@ -1,3 +1,4 @@
+import {experimentalQualityHold,projectQualityHeldProfile,assertQualityExecutionAllowed} from './quality-policy.mjs';
 import { randomUUID } from "node:crypto";
 import { Model } from "./model.mjs";
 import { searchSource } from "./search.mjs";
@@ -109,15 +110,17 @@ export function startWorker(
         );
         return;
       }
+      if(task.type==='create'||task.type==='learn')assertQualityExecutionAllowed();
       const learningSnapshot = task.type === "learn" && (gameProvider === "redfox" || task.payload.source_provider === "redfox")
         ? resolveBoundGameCollection(bridge,task.payload) : null;
       ctx.identity = await model.identity();
       const game = task.payload.game;
       if (learningSnapshot && preliminaryLearning) {
-        const profile = await preliminaryLearning(learningSnapshot, {
+        const profile = projectQualityHeldProfile(await preliminaryLearning(learningSnapshot, {
           ...ctx, game, groups,
           saveProgress: result => db.db.prepare("UPDATE tasks SET result=? WHERE id=? AND owner=? AND state='running'").run(JSON.stringify(result),task.id,owner),
-        });
+        }));
+        db.profile(game,profile);
         db.finish(task.id,owner,profile.status === 'ready' ? 'completed' : 'needs_input',profile,profile.status === 'ready' ? null : profile.blocking_gaps.join('；'));
         return;
       }
@@ -441,7 +444,7 @@ export function startWorker(
             )
           )
             throw new NeedsInput("游戏事实缺少互联网资料依据");
-        const profile = {
+        const profile = projectQualityHeldProfile({
           ...value,
           ...(learningSnapshot ? {collection_origin:learningSnapshot.provenance} : {}),
           evidence,
@@ -455,9 +458,9 @@ export function startWorker(
             value.relevant_video_ids,
           ),
           coverage: "抽样画面与自动语音；结论限定已读证据，不代表完整视听核验",
-        };
+        });
         db.profile(game, profile);
-        db.finish(task.id, owner, "completed", profile);
+        db.finish(task.id, owner, "needs_input", profile, experimentalQualityHold().reason);
       } else if (task.type === "create") {
         const profile = db.profile(game);
         if (
@@ -616,12 +619,13 @@ export function startWorker(
             : e instanceof NeedsInput ||
                 e instanceof LearningSnapshotError ||
                 e instanceof RedfoxAssetError ||
+                e.code === "EXPERIMENTAL_QUALITY_HOLD" ||
                 e.code === "DELIVERY_UNKNOWN" ||
                 e.code === "BRIDGE_EXPIRED" ||
                 e instanceof MediaUnavailableError
               ? "needs_input"
               : "failed",
-          db.get(task.id)?.result || null,
+          e.code === "EXPERIMENTAL_QUALITY_HOLD" ? {...(db.get(task.id)?.result||{}),experimental_quality_hold:experimentalQualityHold()} : db.get(task.id)?.result || null,
           String(e.message).slice(0, 1500),
         );
     } finally {

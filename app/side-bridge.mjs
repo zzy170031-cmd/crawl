@@ -1,6 +1,7 @@
 // The assistant fulfills observed facts through a local CLI. No cookies, CDP or
 // browser execution endpoint is exposed by this bridge.
 import { randomUUID } from "node:crypto";
+import { assertQualityExecutionAllowed } from "./quality-policy.mjs";
 import { realpathSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { dataDir } from "./config.mjs";
@@ -581,6 +582,7 @@ export class SideBridge {
       const r = this.get(id);
       if (!r || r.kind !== "delivery" || r.state !== "awaiting_approval")
         fail("该草稿当前不可批准");
+      assertQualityExecutionAllowed();
       const payload = {
         ...r.payload,
         destination: destination(target),
@@ -600,6 +602,7 @@ export class SideBridge {
       const r = this.get(id);
       if (!r || r.kind !== "delivery" || r.state !== "approved")
         fail("交付未批准或已开始；禁止重复写入");
+      assertQualityExecutionAllowed();
       return this.public(this.update(id, "writing"));
     });
   }

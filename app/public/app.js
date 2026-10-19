@@ -1115,6 +1115,16 @@ function renderTaskDetail(t) {
     el("p", `${t.state_label || t.state} / ${t.stage || "等待执行"}`),
   );
   if (t.error) root.append(el("p", t.error, "notice"));
+  if (t.type === "learn" && t.result?.progress) {
+    const p = t.result.progress;
+    root.append(el("p", `已读取 ${p.read_count || 0} 组 · 相关初学 ${p.relevant_count ?? p.verified_count ?? 0} 组 / 至少 ${p.minimum_required || 20} 组 · 复用 ${p.reused_count || 0} 条`, "notice"));
+    if (t.result.summary) addJSON(root, "游戏初步认知与待补充项", {
+      summary: t.result.summary, game_overview: t.result.game_overview,
+      video_content_map: t.result.video_content_map, initial_quality_notes: t.result.initial_quality_notes,
+      sample_coverage: t.result.sample_coverage, unknowns: t.result.unknowns,
+      blocking_gaps: t.result.blocking_gaps, version: t.result.version,
+    });
+  }
   if (
     activeStates.includes(t.state) &&
     (bridge?.pending || []).some((r) => r.task_id === t.id)
@@ -1162,11 +1172,26 @@ function renderTaskDetail(t) {
         const speech =
           coverage.speech === "automatic_transcript_unverified"
             ? "自动转写，尚未核对"
+            : coverage.speech === "full_audio_machine_transcription_with_subtitle_point_checks"
+            ? "完整音轨机器转写，不代表完整声音理解"
+            : coverage.speech === "no_speech_detected"
+            ? "未识别出语音，不代表已理解全部声音"
             : coverage.speech || "未提供语音读取状态";
+        const visual = coverage.visual === "uniform_sampled_frames"
+          ? `${coverage.sample_count} 张均匀抽帧，未连续观看全部动作`
+          : coverage.visual || "未提供读取范围";
+        const subtitles = item.subtitle_review?.status === "machine_subtitle_point_checked"
+          ? `机器点核，有依据的纠词 ${item.subtitle_review.term_corrections?.length || 0} 项；其余转写未核验，未经人工复核`
+          : coverage.subtitle_verification || "未提供核对记录";
+        const summaryQuality = item.summary_quality?.status === "consistent"
+          ? "抽样OCR与原始ASR机器核对通过；纯画面叙事、动作与构图未复核"
+          : item.summary_quality?.status === "needs_review"
+          ? "待核验，不计入有效初学"
+          : "尚未完成一致性复核";
         root.append(
           el(
             "p",
-            `画面：${coverage.visual || "未提供读取范围"}；语音：${speech}；字幕核对：${coverage.subtitle_verification || "未提供核对记录"}。`,
+            `画面：${visual}；语音：${speech}；字幕核对：${subtitles}；摘要：${summaryQuality}。`,
             "notice",
           ),
         );
@@ -1186,7 +1211,7 @@ function renderTaskDetail(t) {
         addJSON(
           root,
           "字幕核对与术语修正",
-          item.term_corrections || item.corrections,
+          item.subtitle_review || item.term_corrections || item.corrections,
         );
       }
       addJSON(root, item.title || "证据记录", item);

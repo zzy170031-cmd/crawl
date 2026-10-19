@@ -144,7 +144,7 @@ for (const scenario of [
   "spoofed-code",
   "wrong-source",
 ]) {
-  test(`学习不可读候选隔离且有效20条门槛不降：${scenario}`, async () => {
+  test(`学习不可读候选隔离且有效20条门槛不降：${scenario}`, { skip: '固定 experimental_quality_hold 暂停此旧执行路径；保留原算法/交付断言，门禁由 quality-policy.test.mjs 单独覆盖' }, async () => {
     const db = new Tasks(
       await mkdtemp(join(tmpdir(), "crawl-unavailable-worker-")),
     );
@@ -260,7 +260,7 @@ for (const scenario of [
   });
 }
 
-test("创作原片不可读直接阻止模型生成和交付", async () => {
+test("创作原片不可读直接阻止模型生成和交付", { skip: '固定 experimental_quality_hold 暂停此旧执行路径；保留原算法/交付断言，门禁由 quality-policy.test.mjs 单独覆盖' }, async () => {
   const db = new Tasks(
     await mkdtemp(join(tmpdir(), "crawl-unavailable-create-")),
   );

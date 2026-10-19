@@ -547,7 +547,7 @@ test("空搜索也更新独立范围，旧游戏证据留存但不再展示过�
     db.close();
   }
 });
-test("交付必须批准具体目标且登记开始，写入未知不能通过重试产生第二次交付", async () => {
+test("交付必须批准具体目标且登记开始，写入未知不能通过重试产生第二次交付", { skip: '固定 experimental_quality_hold 暂停新交付；保留原写入恢复断言，底层阻断与只读恢复由 quality-policy.test.mjs 覆盖' }, async () => {
   const { db, bridge } = await setup();
   try {
     const t = db.create("create", {
@@ -757,15 +757,9 @@ test("未知交付只能通过目标匹配的回读对账恢复，不能重新�
       plan: { text: "original" },
       destination: null,
     });
-    bridge.approve(r.id, {
-      file_id: "file123",
-      url: "https://docs.qq.com/sheet/test",
-    });
-    bridge.beginDelivery(r.id);
-    bridge.fulfill(
-      r.id,
-      envelope(r, { status: "unknown", message: "响应中断" }),
-    );
+    // Preserve a pre-hold unknown delivery; reconciliation is readback-only.
+    db.db.prepare("UPDATE bridge_requests SET state='unknown',payload=? WHERE id=?")
+      .run(JSON.stringify({...r.payload,destination:{file_id:"file123",url:"https://docs.qq.com/sheet/test"}}),r.id);
     const receipt = {
       status: "completed",
       file_id: "file123",

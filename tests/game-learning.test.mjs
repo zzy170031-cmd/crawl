@@ -9,13 +9,13 @@ import {runGameLearning,validateLearningSummary} from '../app/game-learning.mjs'
 import {gameReference} from '../app/game-reference.mjs';
 const game='率土之滨';
 const source={id:'web:appstore:123',kind:'web',content:'与玩家组建同盟',url:'https://apps.apple.com/cn/app/id123',read_at:'2026-10-19T00:00:00Z'};
-const summary={summary:'游戏语境',game_facts:[{text:'发行方介绍支持同盟协作',evidence_id:source.id,quote:'组建同盟'}],player_interests:[],creative_methods:[],unknowns:[]};
+const summary={summary:'游戏语境',game_facts:[{text:'发行方介绍支持同盟协作',evidence_id:source.id,quote:'组建同盟'}],player_interests:[{text:"玩家关注",evidence_ids:["video:7696356432198913301"]}],creative_methods:[{text:"表达方法",evidence_ids:["video:7696356432198913301"]}],unknowns:[]};
 const snapshot={provenance:{game,request_id:'receipt-1'},records:Array.from({length:21},(_,i)=>({kind:'video',provider:'redfox',source_id:String(7696356432198913300n+BigInt(i)),author:'作者'+i,title:'标题'+i}))};
-function card(row){return {id:'video:'+row.source_id,kind:'video',source_id:row.source_id,read_at:'2026-10-18T01:00:00Z',counts_as_relevant:true,learning_card:{summary:'实际观察',content_type:'讨论',quality_notes:[]},analysis:{needs_audio_review:true}};}
+function card(row){return {id:'video:'+row.source_id,kind:'video',source_id:row.source_id,read_at:'2026-10-18T01:00:00Z',counts_as_relevant:true,summary_quality:{status:'consistent',checks:[{relation:'supported'}]},learning_card:{summary:'实际观察',content_type:'讨论',quality_notes:[]},analysis:{needs_audio_review:true}};}
 async function setup(t){const folder=await mkdtemp(join(tmpdir(),'game-learning-')),db=new Tasks(folder);t.after(async()=>{db.close();await rm(folder,{recursive:true,force:true});});return {db,groups:new ContentGroups(db),game,model:{json:async()=>structuredClone(summary)},identity:{name:'fixture',digest:'fixture'},stage:()=>{}};}
-test('bound learning skips missing originals, needs no bridge or paid calls, persists 20 preliminary groups',async t=>{
+test('bound learning skips missing originals, needs no bridge or paid calls, persists 20 preliminary groups but cannot clear server quality hold',async t=>{
  const ctx=await setup(t);let read=0;const options={fingerprint:async r=>'fp:'+r.source_id,readMedia:async r=>{read++;if(r.source_id===snapshot.records[0].source_id){const e=Error('missing');e.code='MEDIA_ASSET_REQUIRED';throw e;}return card(r);},reference:async()=>[source]};
- const p=await runGameLearning(snapshot,ctx,options);assert.equal(p.status,'ready');assert.equal(p.independent_content_count,20);assert.equal(p.progress.verified_count,0);assert.equal(p.unavailable_sources.length,1);assert(p.evidence.filter(x=>x.kind==='video').every(x=>x.analysis.needs_audio_review));assert(ctx.db.checkpoint('game-profile-version:'+p.version));
+ const p=await runGameLearning(snapshot,ctx,options);assert.equal(p.status,'needs_input');assert.equal(p.experimental_quality_hold.active,true);assert(p.blocking_gaps.some(g=>g.includes('摘要忠实性')));assert.equal(p.independent_content_count,20);assert.equal(p.progress.verified_count,0);assert.equal(p.unavailable_sources.length,1);assert(p.evidence.filter(x=>x.kind==='video').every(x=>x.analysis.needs_audio_review));assert(ctx.db.checkpoint('game-profile-version:'+p.version));
  const again=await runGameLearning(snapshot,ctx,options);assert.equal(again.progress.reused_count,20);assert.equal(read,22);assert(again.evidence.filter(x=>x.kind==='video').every(x=>x.read_at==='2026-10-18T01:00:00Z'));
 });
 test('same theme, unavailable and unknown source remain partial rather than quota filling',async t=>{
@@ -29,6 +29,16 @@ test('cancellation preserves completed evidence checkpoints but never publishes 
 test('summary rejects invented facts, wrong sources and machine-irrelevant content',()=>{
  assert.throws(()=>validateLearningSummary({...summary,game_facts:[{text:'invented',evidence_id:source.id,quote:'自动抽卡'}]},[source]),/原句/);
  assert.throws(()=>validateLearningSummary({...summary,creative_methods:[{text:'fake',evidence_ids:['video:wrong']}]},[source]),/相关性/);
+});
+test('empty cognition text cannot pass readiness with valid citations',async t=>{
+ const evidence=[source,{id:summary.player_interests[0].evidence_ids[0],counts_as_relevant:true}];
+ for(const field of ['summary','game_facts','player_interests','creative_methods']){
+   const empty=structuredClone(summary);if(field==='summary')empty.summary=' ';else empty[field][0].text='\n ';
+   assert.throws(()=>validateLearningSummary(empty,evidence),/正文|不能为空/);
+ }
+ const ctx=await setup(t);ctx.model.json=async()=>({...structuredClone(summary),summary:' '});
+ const p=await runGameLearning(snapshot,ctx,{fingerprint:async()=>null,readMedia:async r=>card(r),reference:async()=>[source]});
+ assert.equal(p.independent_content_count,21);assert.equal(p.status,'needs_input');assert(p.blocking_gaps.some(g=>g.includes('汇总未通过')));
 });
 test('public reference matches one exact game only, does not mistake related titles for official identity',async()=>{
  const row={kind:'software',primaryGenreName:'Games',trackName:game,trackId:123,trackViewUrl:'https://apps.apple.com/cn/app/id123',artistName:'发行方',description:'组建同盟'};

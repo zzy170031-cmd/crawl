@@ -1,4 +1,5 @@
 import { hash } from "./tasks.mjs";
+import { assertQualityExecutionAllowed } from "./quality-policy.mjs";
 import { TencentClient } from "./tencent-client.mjs";
 import { verifyExport } from "./verify-export.mjs";
 export function sheetURL(raw) {
@@ -189,6 +190,13 @@ export async function deliver({
     verified_batches: [],
     warnings: [],
   };
+  if (receipt.content_verified_at)
+    return {
+      ...receipt,
+      cached: true,
+      verification_scope: "返回首次验证回执，本次未覆盖或重新核验用户修改",
+    };
+  assertQualityExecutionAllowed();
   const save = () => db.checkpoint(key, receipt);
   const check = () => signal?.throwIfAborted();
   const call = async (name, args) => {
@@ -227,12 +235,6 @@ export async function deliver({
     receipt.stage = "created";
     save();
   }
-  if (receipt.content_verified_at)
-    return {
-      ...receipt,
-      cached: true,
-      verification_scope: "返回首次验证回执，本次未覆盖或重新核验用户修改",
-    };
   const args = { ...base, sheet_id: receipt.sheet_id };
   async function read(start, end) {
     const result = await call("sheet_get_cell_data", {
