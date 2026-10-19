@@ -1,21 +1,94 @@
 import { hash } from "./tasks.mjs";
 import { TencentClient } from "./tencent-client.mjs";
 import { verifyExport } from "./verify-export.mjs";
-export function destination(input) {
-  if (
-    !input ||
-    typeof input.file_id !== "string" ||
-    !/^[A-Za-z0-9_-]{4,100}$/.test(input.file_id)
-  )
-    throw Error("请配置腾讯表格file_id");
-  const u = new URL(input.url);
+export function sheetURL(raw) {
+  if (typeof raw !== "string" || raw.length > 4096)
+    throw Error("请输入腾讯在线表格链接");
+  let u;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    throw Error("请输入有效的腾讯在线表格链接");
+  }
   if (
     u.protocol !== "https:" ||
     u.hostname !== "docs.qq.com" ||
-    !u.pathname.startsWith("/sheet/")
+    u.username ||
+    u.password ||
+    (u.port && u.port !== "443") ||
+    !/^\/sheet\/[A-Za-z0-9_-]{4,200}$/.test(u.pathname)
   )
-    throw Error("交付目标须为腾讯在线表格");
-  return { file_id: input.file_id, url: u.origin + u.pathname };
+    throw Error(
+      "交付目标须为 https://docs.qq.com/sheet/ 开头的腾讯在线表格链接",
+    );
+  return u.origin + u.pathname;
+}
+const validFileId = (value) =>
+  typeof value === "string" && /^[A-Za-z0-9_-]{4,100}$/.test(value);
+export function destination(input) {
+  if (!input || !validFileId(input.file_id))
+    throw Error("请配置腾讯表格file_id");
+  return { file_id: input.file_id, url: sheetURL(input.url) };
+}
+// Tencent's current MCP has no URL resolver. Use only provider-returned URL/ID
+// pairs, never decode an opaque share token or reuse an unrelated old target.
+export async function resolveDestination(
+  input,
+  {
+    client = new TencentClient(),
+    previous = null,
+    signal = AbortSignal.timeout(60000),
+    maxPages = 10,
+  } = {},
+) {
+  const url = sheetURL(input?.url);
+  if (input?.file_id !== undefined && !validFileId(input.file_id))
+    throw Error("腾讯表格标识无效，请重新保存文档链接");
+  const verify = async (fileId) => {
+    signal?.throwIfAborted();
+    const info = await client.call(
+      "manage_query_file_info",
+      { file_id: fileId },
+      { signal },
+    );
+    if (info?.file_id !== fileId || !["sheet", "excel"].includes(info?.type))
+      throw Error("腾讯文档返回的目标不是有效在线表格，请检查链接");
+    if (sheetURL(info.url) !== url)
+      throw Error("文档链接与目标标识不一致，未保存交付位置");
+    return { file_id: fileId, url };
+  };
+  if (input?.file_id) return verify(input.file_id);
+  let samePrevious = false;
+  try {
+    samePrevious =
+      validFileId(previous?.file_id) && sheetURL(previous.url) === url;
+  } catch {}
+  if (samePrevious) return verify(previous.file_id);
+  for (let page = 1; page <= Math.min(10, Math.max(1, maxPages)); page++) {
+    signal?.throwIfAborted();
+    const result = await client.call(
+      "manage_recent_online_file",
+      { num: page, count: 20, order_by: 0 },
+      { signal },
+    );
+    if (!Array.isArray(result?.files))
+      throw Error("腾讯文档未返回有效文档列表，请稍后重试");
+    const matches = result.files.filter((file) => {
+      try {
+        return validFileId(file.file_id) && sheetURL(file.file_url) === url;
+      } catch {
+        return false;
+      }
+    });
+    const ids = [...new Set(matches.map((file) => file.file_id))];
+    if (ids.length > 1)
+      throw Error("腾讯文档返回多个不一致的目标标识，未保存交付位置");
+    if (ids.length === 1) return verify(ids[0]);
+    if (result.files.length < 20) break;
+  }
+  throw Error(
+    "未在腾讯文档最近访问记录中找到该链接。请先打开目标文档，再回来保存链接；原交付位置未改变",
+  );
 }
 export function composeRows(task, plan, evidence) {
   const rows = [

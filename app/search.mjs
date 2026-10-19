@@ -25,7 +25,15 @@ export async function searchSource({
   let browser;
   try {
     const { chromium } = require("playwright-core");
-    browser = await chromium.connectOverCDP(config.cdp, { timeout: 10000 });
+    try {
+      browser = await chromium.connectOverCDP(config.cdp, { timeout: 10000 });
+    } catch {
+      const error = Error(
+        "后台未连接到专用浏览器；右侧浏览器登录不等于后台采集已连接",
+      );
+      error.code = "BROWSER_UNAVAILABLE";
+      throw error;
+    }
     const page = browser
       .contexts()
       .flatMap((c) => c.pages())
@@ -121,7 +129,9 @@ export async function searchSource({
       scope: "热点宝榜单关键词搜索，每个榜单首屏最多 20 条，不等于抖音全站搜索",
     };
   } catch (e) {
-    throw Error(String(e.message).split("\n")[0]);
+    const error = Error(String(e.message).split("\n")[0]);
+    error.code = e.code;
+    throw error;
   } finally {
     busy = false;
     await browser?.close();

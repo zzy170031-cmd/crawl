@@ -1,0 +1,25 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,rm,unlink} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {hash} from '../app/tasks.mjs';
+import {verifiedPreparedFrames} from '../app/prepare-side-media.mjs';
+test('prepared cache requires source identity and every frame/audio digest',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'prepared-cache-')),folder=pathToFileURL(dir+'/');t.after(()=>rm(dir,{recursive:true,force:true}));
+ const media={source_id:'12345678901',url:'https://www.douyin.com/video/12345678901'},digest='source';
+ const frame={file:'frame-0.0.png',actual_time:0,sha256:hash('pixels')};
+ const audio={...media,source_sha256:digest,duration:10,end:10};
+ const frames={source_id:media.source_id,source_sha256:digest,duration:10,frames:[frame]};
+ const values={'prepared.json':{source_sha256:digest,duration:10,audio_sha256:hash('audio')},'frames.json':frames,'audio.json':audio,'page.json':{url:media.url,title:'fixture',source_sha256:digest}};
+ for(const [name,value] of Object.entries(values))await writeFile(new URL(name,folder),JSON.stringify(value));
+ await writeFile(new URL('audio.webm',folder),'audio');await writeFile(new URL(frame.file,folder),'pixels');
+ assert(await verifiedPreparedFrames(media,digest,folder));
+ await unlink(new URL(frame.file,folder));assert.equal(await verifiedPreparedFrames(media,digest,folder),null);
+ await writeFile(new URL(frame.file,folder),'corrupt');assert.equal(await verifiedPreparedFrames(media,digest,folder),null);
+ await writeFile(new URL(frame.file,folder),'pixels');await writeFile(new URL('audio.webm',folder),'changed');assert.equal(await verifiedPreparedFrames(media,digest,folder),null);
+ await writeFile(new URL('audio.webm',folder),'audio');
+ assert.equal(await verifiedPreparedFrames({...media,source_id:'99999999999'},digest,folder),null);
+ assert.equal(await verifiedPreparedFrames(media,'another-source',folder),null);
+});

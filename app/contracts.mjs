@@ -110,11 +110,11 @@ export function validateProfile(value, evidence, game) {
     evidence.filter((e) => e.kind === "video").map((e) => e.id),
   );
   if (
-    value.relevant_video_ids.length < 3 ||
-    new Set(value.relevant_video_ids).size < 3 ||
+    value.relevant_video_ids.length < 20 ||
+    new Set(value.relevant_video_ids).size < 20 ||
     value.relevant_video_ids.some((id) => !videos.has(id))
   )
-    throw Error("至少需要3条实际相关独立作品，当前资料不足");
+    throw Error("至少需要20条实际相关独立作品，当前资料不足");
   for (const key of ["player_interests", "creative_methods", "game_facts"]) {
     if (!value[key].length) throw Error("游戏资料缺少" + key);
     for (const c of value[key]) {

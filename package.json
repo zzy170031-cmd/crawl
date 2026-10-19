@@ -12,7 +12,8 @@
     "browser": "node --env-file-if-exists=.env scripts/browser.mjs",
     "task": "node --env-file-if-exists=.env scripts/task.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "setup": "node scripts/setup.mjs"
   },
   "dependencies": {
     "playwright-core": "1.56.1"

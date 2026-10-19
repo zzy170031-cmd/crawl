@@ -14,3 +14,6 @@ __pycache__/
 browser-profile/
 models/
 coverage/
+
+# Local execution ledger and approval history
+.judgment/

@@ -1,86 +1,416 @@
 <!doctype html>
 <html lang="zh-CN">
   <head>
-    <meta charset="utf-8" />
+    <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>热点游戏创作台</title>
-    <link rel="stylesheet" href="/style.css" />
+    <title>CRAWL · 热点游戏创作台</title>
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <main>
-      <header>
-        <span class="brand">CRAWL / 热点游戏创作台</span
-        ><span class="badge">本地运行 · 待真实验收</span>
+    <aside class="sidebar">
+      <a class="brand" href="#"
+        ><span class="brand-symbol">c<span>↗</span></span
+        ><span>CRAWL<small>热点游戏创作台</small></span></a
+      >
+      <div class="side-label">WORKSPACE / 工作空间</div>
+      <nav aria-label="主导航">
+        <button data-page="discover" aria-label="游戏广场" class="nav active">
+          <span>◈</span><b>游戏广场</b><em id="record-count">0</em></button
+        ><button data-page="hotspots" aria-label="热点广场" class="nav">
+          <span>▣</span><b>热点广场</b><em id="hotspot-count">0</em></button
+        ><button data-page="tasks" aria-label="创作任务" class="nav">
+          <span>☷</span><b>创作任务</b><em id="task-count">0</em>
+        </button>
+      </nav>
+      <div class="side-note">
+        <span class="blue-dot"></span> 从发现，到作品。
+        <p>让每个创作灵感<br />都有可追溯的依据。</p>
+      </div>
+      <div class="side-bottom">
+        <button id="design-button" aria-label="设计与配色">
+          ◐ <span>设计与配色</span>
+        </button>
+        <div class="profile">
+          <span>创</span>
+          <div>我的工作台<small>本地工作空间 · V2.0</small></div>
+        </div>
+      </div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-heading">
+          <h1 id="page-slogan" class="topbar-slogan">看懂游戏，找到灵感。</h1>
+        </div>
+        <div class="top-actions">
+          <button class="prototype-label" id="refresh-state">刷新状态</button>
+          <button class="prototype-label" id="connection-button">
+            连接与交付设置
+          </button>
+        </div>
       </header>
-      <section class="hero">
-        <p class="eyebrow">先理解，再创作</p>
-        <h1>让热点成为你的游戏故事。</h1>
-        <p>学习游戏 → 选定热点 → 阅读代表作品 → 生成详细策划 → 腾讯文档交付</p>
-      </section>
-      <section class="creator-settings">
-        <label for="game">目标游戏</label
-        ><input id="game" placeholder="例如：率土之滨" maxlength="40" /><button
-          id="learn"
+      <main>
+        <section
+          id="game-context"
+          class="game-context"
+          aria-label="目标游戏设置"
         >
-          学习游戏传播</button
-        ><button id="relearn">更新学习</button>
-      </section>
-      <p id="profile" class="hint"></p>
-      <details>
-        <summary>腾讯文档交付设置</summary>
-        <p>只填写作为交付目标的腾讯在线表格。访问令牌由本机环境配置。</p>
-        <label>表格 file_id <input id="file-id" /></label
-        ><label
-          >表格链接
-          <input
-            id="doc-url"
-            placeholder="https://docs.qq.com/sheet/…" /></label
-        ><button id="save-settings">保存交付位置</button>
-      </details>
-      <section class="filters">
-        <input id="query" placeholder="关键词可选" /><select
-          id="board"
-          aria-label="榜单"
+          <div class="game-context-label">
+            <span>CREATING FOR</span><label for="target-game">目标游戏</label>
+          </div>
+          <div class="game-input-wrap">
+            <input
+              id="target-game"
+              placeholder="输入一个游戏，如：率土之滨"
+              maxlength="40"
+              value=""
+              autocomplete="off"
+            /><span id="game-status">检查中</span>
+          </div>
+          <div class="game-actions">
+            <button id="find-game" class="secondary">查找游戏素材</button
+            ><button id="learn-game" class="primary">学习游戏</button>
+          </div>
+          <p id="game-help">输入目标游戏，再查找真实作品或开始学习。</p>
+        </section>
+        <p
+          id="message"
+          role="status"
+          class="status-line"
+          aria-live="polite"
+        ></p>
+        <div
+          id="hotspot-navigation"
+          class="chips material-source-nav"
+          role="group"
+          aria-label="热点内容"
+          hidden
         >
-          <option value="">全部榜单</option>
-          <option value="1001">视频总榜</option>
-          <option value="1002">低粉爆款</option>
-          <option value="1003">高完播率</option>
-          <option value="1004">高涨粉率</option>
-          <option value="1005">高点赞率</option>
-          <option value="2001">话题榜</option>
-          <option value="2002">飙升话题</option>
-          <option value="3001">搜索榜</option>
-          <option value="3002">飙升搜索</option></select
-        ><select id="hours" aria-label="时间">
-          <option value="24">近1天</option>
-          <option value="1">近1小时</option>
-          <option value="72">近3天</option>
-          <option value="168">近7天</option></select
-        ><select id="category" aria-label="一级行业">
-          <option value="all">不限行业</option></select
-        ><select id="sort" aria-label="排序">
-          <option value="heat_desc">热度高到低（同榜）</option>
-          <option value="heat_asc">热度低到高（同榜）</option>
-          <option value="newest">采集时间</option></select
-        ><button id="search">获取热点</button
-        ><button id="local">本地筛选</button
-        ><button id="subscribe">每小时刷新此范围</button>
-      </section>
-      <p class="hint">
-        跨榜热度不可直接比较。查询结果为对应榜单首屏，不代表抖音全站结果。
+          <button id="hotspot-source" class="chip selected" aria-pressed="true">
+            热门作品榜
+          </button>
+          <button id="selected-source" class="chip" aria-pressed="false">
+            已选题 <span id="saved-count">0</span>
+          </button>
+        </div>
+        <section id="discover-view">
+          <div
+            id="game-navigation"
+            class="chips material-source-nav"
+            role="group"
+            aria-label="素材来源"
+          >
+            <button class="chip selected" id="game-source" aria-pressed="true">
+              目标游戏素材</button
+            ><button class="chip" id="courses-source" aria-pressed="false">
+              创作课堂
+            </button>
+          </div>
+          <div class="material-controls">
+            <div class="section-heading">
+              <div>
+                <h2 id="material-heading">目标游戏 · 视频候选</h2>
+                <p id="material-summary">正在读取本地素材…</p>
+              </div>
+              <div class="button-row">
+                <button class="secondary" id="fetch-game-media" hidden>获取原片 / 查看费用</button>
+                <button class="secondary" id="refresh-list">刷新本地结果</button
+                ><button class="primary" id="sync-game">同步抖音</button>
+              </div>
+            </div>
+            <div id="game-sync-controls">
+              <label class="auto-sync">
+                <input type="checkbox" id="auto-sync" />
+                <span
+                  >每 10 分钟请求同步<span class="sync-assistance"
+                    >（需助手执行）</span
+                  ></span
+                >
+              </label>
+              <p id="sync-status" class="small muted">
+                按需同步；页面不会自行操作右侧浏览器。
+              </p>
+            </div>
+            <div id="course-controls" hidden>
+              <p id="course-update-status" class="small muted">
+                公开课程独立于游戏素材。默认每周请求更新一次，需页面开启并由助手执行；也可手动更新。
+              </p>
+              <button id="fetch-courses" class="primary">
+                查找 / 更新公开课程
+              </button>
+            </div>
+          </div>
+          <div id="rank-controls" hidden>
+            <div class="rank-filters">
+              <label
+                >榜单<select id="board">
+                  <option value="">全部榜单</option>
+                  <option value="1001">视频总榜</option>
+                  <option value="1002">低粉爆款</option>
+                  <option value="1003">高完播率</option>
+                  <option value="1004">高涨粉率</option>
+                  <option value="1005">高点赞率</option>
+                  <option value="2001">话题榜</option>
+                  <option value="2002">飙升话题</option>
+                  <option value="3001">搜索榜</option>
+                  <option value="3002">飙升搜索</option>
+                </select></label
+              ><label
+                >时间<select id="hours">
+                  <option value="24">近 1 天</option>
+                  <option value="1">近 1 小时</option>
+                  <option value="72">近 3 天</option>
+                  <option value="168">近 7 天</option>
+                </select></label
+              ><label
+                >行业<select id="category">
+                  <option value="all">不限行业</option>
+                </select></label
+              ><label
+                >排序<select id="sort">
+                  <option value="heat_desc">同榜热度高到低</option>
+                  <option value="heat_asc">同榜热度低到高</option>
+                  <option value="newest">最新采集</option>
+                </select></label
+              >
+            </div>
+            <p id="rank-scope-help" class="small muted">
+              榜单只显示实际采集范围。跨榜热度不可比较；榜单没有某游戏，不代表抖音没有该游戏。
+            </p>
+          </div>
+          <div class="filterbar">
+            <label class="search"
+              ><span>⌕</span
+              ><input
+                id="query"
+                type="search"
+                placeholder="筛选已采集素材"
+                aria-label="筛选已采集素材"
+            /></label>
+            <div class="button-row">
+              <button class="secondary" id="local-filter">筛选本地结果</button
+              ><button class="primary" id="fetch-hotspots" hidden>
+                获取榜单热点
+              </button>
+            </div>
+          </div>
+          <div id="cards" class="cards"></div>
+          <div id="no-results" class="empty" hidden>
+            <h3 id="empty-heading">还没有符合条件的素材</h3>
+            <p id="empty-help">
+              输入目标游戏并查找素材。这里仅展示实际采集记录。
+            </p>
+          </div>
+        </section>
+        <section id="saved-view" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>已选题</h2>
+              <p>从游戏作品或热门榜单加入选题，确认创作方式后创建任务。</p>
+            </div>
+          </div>
+          <div id="saved-cards" class="cards"></div>
+          <div id="saved-empty" class="empty">
+            <span class="empty-icon">▣</span>
+            <h3>你的第一个选题，正在路上</h3>
+            <p>在游戏广场或热门作品榜选择素材，加入已选题。</p>
+            <button class="primary" id="back-discover">浏览热门作品榜 →</button>
+          </div>
+        </section>
+        <section id="tasks-view" hidden>
+          <section class="task-composer" aria-label="创建创作任务">
+            <p id="composer-help" class="small muted">
+              从前两页确认选题后，在这里生成完整方案。
+            </p>
+            <label class="field"
+              >已确认选题<select id="draft-source">
+                <option value="">请先从游戏广场或热点广场选择素材</option>
+              </select></label
+            >
+            <div class="composer-options">
+              <label class="field"
+                >创作方式<select id="mode">
+                  <option value="A">游戏视频 · 作品改编</option>
+                  <option value="B">热点 × 游戏 · 联动策划</option>
+                </select></label
+              >
+              <label class="field"
+                >输出形式<select id="format">
+                  <option value="video">视频脚本</option>
+                  <option value="image">图文内容</option>
+                </select></label
+              >
+            </div>
+            <button class="primary" id="create-draft">生成创作方案 →</button>
+            <p class="small muted">
+              实际核验 → 生成完整草稿 → 审阅 → 确认腾讯文档交付
+            </p>
+          </section>
+          <div id="task-list"></div>
+          <div id="tasks-empty" class="empty">
+            <span class="empty-icon">☷</span>
+            <h3>还没有创作任务</h3>
+            <p>先学习游戏，再从真实素材中创建策划草稿。</p>
+          </div>
+        </section>
+        <footer>
+          <span><i></i>真实任务 · 原片核验后创作，审阅后确认交付</span
+          ><span>CRAWL / CREATIVE STUDIO</span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="detail-dialog" class="drawer">
+      <div class="drawer-top">
+        <form method="dialog">
+          <button class="secondary return-material" type="submit">
+            ← 返回列表
+          </button>
+        </form>
+        <span>素材详情</span>
+      </div>
+      <div id="detail-image"></div>
+      <div class="drawer-body">
+        <span id="detail-badge" class="badge"></span>
+        <h2 id="detail-title"></h2>
+        <p id="detail-desc"></p>
+        <section id="evidence-panel" role="tabpanel"></section>
+      </div>
+      <div class="drawer-bottom">
+        <button id="save-topic" class="secondary">＋ 加入已选题</button>
+        <button id="send-to-task" class="primary">确认选题 → 创作任务</button>
+      </div>
+    </dialog>
+    <dialog id="design-dialog" class="design-modal">
+      <div class="drawer-top">
+        <span>DESIGN SYSTEM / V2.0</span
+        ><button class="icon-button" data-close aria-label="关闭设计说明">
+          ×
+        </button>
+      </div>
+      <h2>四种颜色，一个清晰的工作台。</h2>
+      <p>用克制的色彩分工，让发现、分析与创作各有位置。</p>
+      <div class="swatches">
+        <div>
+          <i></i><b>酒红</b><span>#7B233B</span><small>品牌 / 创作主操作</small>
+        </div>
+        <div>
+          <i></i><b>科技蓝</b><span>#245AE8</span
+          ><small>选中 / 证据 / 进度</small>
+        </div>
+        <div>
+          <i></i><b>乳白</b><span>#F6F2EA</span><small>背景 / 内容呼吸感</small>
+        </div>
+        <div>
+          <i></i><b>雅黑</b><span>#202126</span
+          ><small>导航 / 标题 / 正文</small>
+        </div>
+      </div>
+      <h3>参考 Feedly 的内容组织方式</h3>
+      <p>
+        游戏广场确定目标并学习，热点广场选择选题，创作任务生成草稿并交付腾讯文档。
       </p>
-      <details>
-        <summary>每小时刷新范围</summary>
-        <div id="subscriptions"></div>
-      </details>
-      <p id="message" role="status"></p>
-      <section id="jobs"></section>
-      <section id="list" class="grid"></section>
-      <footer>
-        服务及专用浏览器运行且账号已登录时执行采集；休眠或关闭服务时暂停。媒体为抽样画面与自动语音，缺少关键证据时会停止对应策划。
-      </footer>
-    </main>
+      <a
+        class="reference"
+        href="https://docs.feedly.com/article/805-feeds-and-boards"
+        target="_blank"
+        rel="noopener"
+        >查看 Feedly 官方案例 ↗</a
+      >
+      <div class="steps">
+        <div><b>01 发现</b><span>筛选素材，保留来源</span></div>
+        <div><b>02 核验</b><span>画面、语音、字幕对齐</span></div>
+        <div><b>03 创作</b><span>草稿审阅后确认交付</span></div>
+      </div>
+    </dialog>
+    <dialog id="connection-dialog" class="design-modal">
+      <div class="drawer-top">
+        <span>CONNECTION / 连接与交付</span
+        ><button class="icon-button" data-close aria-label="关闭连接设置">
+          ×
+        </button>
+      </div>
+      <h2>把素材与交付连起来</h2>
+      <div id="bridge-status" class="notice">正在检查后台状态…</div>
+      <p id="connection-explanation">
+        右侧浏览器由当前聊天中的助手操作。页面会保存请求；聊天空闲时，助手不会自动执行浏览器操作。独立浏览器可以使用此工作台，但不会自动共享网站登录状态。
+      </p>
+      <div class="login-links">
+        <a
+          class="secondary"
+          id="douhot-login"
+          href="https://douhot.douyin.com/square/hotspot?active_tab=hotspot_all"
+          target="_blank"
+          rel="noopener noreferrer"
+          >打开热点宝 ↗</a
+        ><a
+          class="secondary"
+          id="douyin-login"
+          href="https://www.douyin.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          >打开抖音 ↗</a
+        ><a
+          class="secondary"
+          href="https://docs.qq.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          >打开腾讯文档 ↗</a
+        >
+      </div>
+      <p id="connection-login-help">
+        需要在右侧登录时，请在当前聊天中告诉助手。腾讯文档使用 MCP
+        授权；网页登录不等于 MCP 授权已验证。
+      </p>
+      <p>
+        <button id="open-rankings" class="secondary">查看与采集热点榜单</button>
+      </p>
+      <h3>腾讯文档交付位置</h3>
+      <p>沿用已有腾讯文档授权，填写需要操作的在线表格链接即可。</p>
+      <form id="destination-form">
+        <label class="field"
+          >表格链接<input
+            id="doc-url"
+            type="url"
+            placeholder="https://docs.qq.com/sheet/…"
+            required /></label
+        ><button class="primary" id="save-settings" type="submit">
+          保存交付位置
+        </button>
+        <p id="destination-status" role="status"></p>
+      </form>
+    </dialog>
+    <dialog id="media-acquisition-dialog" class="design-modal" aria-labelledby="media-acquisition-title">
+      <div class="drawer-top"><span>原片获取</span><button class="secondary" data-close>关闭</button></div>
+      <h2 id="media-acquisition-title">查看原片获取费用</h2>
+      <div id="media-acquisition-status" aria-live="polite"></div>
+      <div id="media-acquisition-actions" class="button-row"></div>
+      <p>关闭窗口不会停止已确认的后台任务；需要停止时点击“停止获取”。</p>
+    </dialog>
+    <dialog id="task-dialog" class="design-modal task-modal">
+      <div class="drawer-top">
+        <span>TASK / 任务详情</span
+        ><button class="icon-button" data-close aria-label="关闭任务详情">
+          ×
+        </button>
+      </div>
+      <div id="task-detail"></div>
+    </dialog>
+    <dialog id="readiness-dialog" class="design-modal" aria-labelledby="readiness-title">
+      <h2 id="readiness-title">连接就绪，再开始创作</h2>
+      <p>在浏览器完成登录后，回到这里逐个确认连接；腾讯文档填写目标链接并确认。全部通过后进入创作台。</p>
+      <div id="readiness-sites" aria-live="polite"></div>
+      <p id="readiness-message" role="status">正在检查连接…</p>
+      <form id="tencent-credential-form" hidden>
+        <label class="field">腾讯文档授权 Token
+          <input id="tencent-credential" type="password" autocomplete="off" maxlength="4096" required />
+        </label>
+        <p class="small muted">仅保存到本机，用于连接腾讯文档；请勿发到聊天中。</p>
+        <button class="secondary" type="submit">保存授权并检查</button>
+      </form>
+      <div class="login-links">
+        <button id="readiness-check" class="secondary">刷新状态</button>
+        <button id="readiness-enter" class="primary" disabled>进入创作台</button>
+      </div>
+    </dialog>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

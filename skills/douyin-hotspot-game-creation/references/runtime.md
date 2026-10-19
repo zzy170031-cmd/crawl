@@ -1,8 +1,12 @@
 # 共享执行接口
 
-仓库根目录运行 `npm start`，网页默认 http://127.0.0.1:4318。先运行 `npm run doctor -- --probe`；诊断只证明其检查范围。
+本文件用于本机共享执行器。红狐配置下只有用户明确确认的游戏/热点查询可收费；原片获取另有报价与预算确认。learn绑定当前成功查询快照，直接读取已入库原片，生成机器初学资料，不调用付费搜索、不等待聊天回填、不写腾讯。select不追加红狐相关作品搜索；深入音画核对与腾讯交付依然是独立门禁，不能把初学ready当作最终交付通过。参见[game-research.md](game-research.md)。
 
-助手调用 `node scripts/task.mjs learn "率土之滨"` 创建游戏学习；`list` 查看任务；`status ID` 查看结果；`retry ID` 在条件已补齐后恢复；`cancel ID` 取消。
+以下旧浏览器 search/subscribe JSON 不适用于红狐付费查询；红狐使用网页预算确认入口，不伪造paid授权字段。旧浏览器模式接口如下：右侧浏览器助手模式使用 [side-browser.md](side-browser.md)，不调用依赖独立 Chrome 的 search/learn/select 后台任务冒充右侧执行；两种模式的任务状态与登录状态分别记录。
+
+仓库根目录运行 `npm start`，网页默认 http://127.0.0.1:4318。先运行 `npm run doctor -- --layer=collection`，需要分析时再检查 `--layer=analysis`；诊断只证明其检查范围。
+
+助手调用 `npm run task -- learn "率土之滨"` 创建游戏学习；`list` 查看任务；`status ID` 查看结果；`retry ID` 在条件已补齐后恢复；`cancel ID` 取消。
 
 JSON文件仅存本机数据目录，用于以下命令：
 
