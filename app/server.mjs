@@ -1,5 +1,5 @@
 import {serverLearningBinding} from './learning-contract.mjs';
-import {experimentalQualityHold,projectQualityHeldProfile,qualityHoldResponse,qualityCapabilities,qualityExecutionAllowed,LEARNING_PIPELINE} from './quality-policy.mjs';
+import {experimentalQualityHold,projectQualityHeldProfile,qualityHoldResponse,qualityCapabilities,qualityExecutionAllowed,LEARNING_PIPELINE,networkStudyEnabled} from './quality-policy.mjs';
 import { createServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, readdir, lstat } from "node:fs/promises";
@@ -27,7 +27,7 @@ import { saveTencentCredential } from "./tencent-client.mjs";
 import { ContentGroups } from "./content-groups.mjs";
 import { readThumbnail, annotateThumbnails } from "./thumbnails.mjs";
 import { collectionProvenance } from "./collection-provenance.mjs";
-import { bindLatestGameCollection } from "./learning-snapshot.mjs";
+import { bindLatestGameCollection,readLearningSnapshot } from "./learning-snapshot.mjs";
 import { createRedfoxRuntime,redfoxCredentialReader,saveRedfoxCredential } from './redfox-runtime.mjs';
 import { redfoxGameScope, createRedfoxGameSource } from './redfox-game-source.mjs';
 import { REDFOX_HOTSPOT_CATEGORIES, redfoxHotspotScope, createRedfoxHotspotSource } from './redfox-hotspot-source.mjs';
@@ -39,6 +39,8 @@ import { prepareRedfoxMedia } from './media.mjs';
 import {createLocalVideoStore} from './local-videos.mjs';
 import {createGameStudyInput} from './game-study-input.mjs';
 import {handleLocalVideos,localMediaCookie} from './local-video-http.mjs';
+import {createNetworkStudyRuntime} from './study-runtime.mjs';
+import {handleStudyHttp} from './study-http.mjs';
 const localVideos=createLocalVideoStore({folder:join(dataDir,'local-videos')});
 const localMediaCookieName=`crawl_local_media_${config.port}`;
 const verifiedLocalMatches=new Map();
@@ -73,6 +75,9 @@ const db = new Tasks(),
     canRun: () => config.gameSource === 'redfox' || config.searchMode !== "automatic" || Boolean(readiness?.status().ready),
   });
 const redfoxCredentialPath=join(dataDir,'redfox-credential.json');
+const studyRuntime=createNetworkStudyRuntime({dataRoot:dataDir,python:config.python,whisperModel:config.whisperModel,cliPath:config.studyHostCLI,isEnabled:networkStudyEnabled,
+  getCurrentCollection:game=>{if(config.gameSource!=='redfox')throw Error('联网来源尚不支持学习');return bindLatestGameCollection(bridge,game);},
+  readCapturedCollection:(game,id)=>readLearningSnapshot(bridge,bridge.get(id),game),assets:redfoxAssets});
 const redfoxKey=redfoxCredentialReader(redfoxCredentialPath);
 const mediaAcquisition = createMediaAcquisition({db,bridge,assets:redfoxAssets,
   resolver:createRedfoxMediaSource({apiKey:redfoxKey}),download:downloadRedfoxMedia,prepare:prepareRedfoxMedia});
@@ -257,6 +262,7 @@ const server = createServer(async (req, res) => {
     if (!localMediaHead && (req.method !== "GET" || url.pathname === "/api/collector/login-view") && req.headers["x-crawl-token"] !== token)
       return json(res, 403, { error: "会话过期，请刷新" });
     if(await handleLocalVideos(req,res,url,{store:{...localVideos,list:localVideosWithOrigins},token,cookieName:localMediaCookieName}))return;
+    if(await handleStudyHttp(req,res,url,{service:studyRuntime,token,origin,json,body}))return;
     if(url.pathname==='/api/game-study-input'&&req.method==='POST'){
       const input=await body(req),controller=new AbortController();
       const cancel=()=>controller.abort();req.once('aborted',cancel);res.once('close',cancel);
@@ -269,7 +275,7 @@ const server = createServer(async (req, res) => {
         return json(res,200,{...result,experimental_quality_hold:experimentalQualityHold()});
       }finally{req.off('aborted',cancel);res.off('close',cancel);}
     }
-    if(url.pathname==='/api/quality-policy'&&req.method==='GET')return json(res,200,{experimental_quality_hold:experimentalQualityHold(),capabilities:qualityCapabilities()});
+    if(url.pathname==='/api/quality-policy'&&req.method==='GET')return json(res,200,{experimental_quality_hold:experimentalQualityHold(),capabilities:{...qualityCapabilities(),study:{...qualityCapabilities().study,configured:studyRuntime.configured()}}});
     if(req.method==='POST'&&(url.pathname==='/api/creative-jobs'||url.pathname==='/api/game-research'&&(!qualityCapabilities().learning.enabled||config.gameSource!=='redfox'))){
       const input=await body(req);
       return json(res,409,qualityHoldResponse(typeof input.game==='string'?db.profile(input.game.normalize('NFKC').trim()):null));
@@ -400,7 +406,7 @@ const server = createServer(async (req, res) => {
       return json(
         res,
         200,
-        db.list().map((t) => ({ ...t, state_label: stages[t.state], retry_allowed:qualityExecutionAllowed(t.type,t.payload)||t.type==='create'&&Boolean(bridge.completedDelivery?.(t.id)), retry_reason:t.type==='learn'?'此任务使用旧学习管线；请在游戏广场重新点击学习游戏':'创作与文档输出仍待独立验收' })),
+        [...db.list().map((t) => ({ ...t, state_label: stages[t.state], retry_allowed:qualityExecutionAllowed(t.type,t.payload)||t.type==='create'&&Boolean(bridge.completedDelivery?.(t.id)), retry_reason:t.type==='learn'?'此任务使用旧学习管线；请在游戏广场重新点击学习游戏':'创作与文档输出仍待独立验收' })),...studyRuntime.list().map(t=>({...t,state_label:stages[t.state],retry_allowed:false,retry_reason:'候选学习不自动重试；原任务与检查点已保留。'}))].sort((a,b)=>String(b.updated).localeCompare(String(a.updated))),
       );
     const taskRoute = url.pathname.match(
       /^\/api\/tasks\/([a-f0-9-]+)(?:\/(retry|cancel))?$/,
@@ -767,12 +773,15 @@ const server = createServer(async (req, res) => {
   }
 });
 server.listen(config.port, "127.0.0.1", () => console.log("创作台 " + origin));
-function stop() {
+let stopping=false;
+async function stop() {
+  if(stopping)return;stopping=true;
   clearInterval(timer);
   readinessScheduler.stop();
   worker.stop();
   mediaAcquisition.stop().catch(() => {});
   collector.stop().catch(() => {});
+  await studyRuntime.close().catch(()=>{});
   server.close(()=>localVideos.close());
   setTimeout(() => process.exit(0), 1500).unref();
 }

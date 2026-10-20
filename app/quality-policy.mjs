@@ -1,8 +1,14 @@
 import {candidateLearningContract,validateLearningTaskBinding,validateLearningProfile} from './learning-contract.mjs';
+import {GAME_STUDY_VERSION} from './game-study.mjs';
+// Limited dossier entry recovered after real-media, UI, restart and independent
+// review. This does not release legacy learning, creative work or delivery.
+const NETWORK_STUDY_RECOVERY_ENABLED=true;
+export const networkStudyEnabled=()=>NETWORK_STUDY_RECOVERY_ENABLED;
+export const networkStudyCapability=()=>({enabled:NETWORK_STUDY_RECOVERY_ENABLED,pipeline:GAME_STUDY_VERSION,output:'candidate_dossier',semantic_acceptance:false,uses_existing_host_account_network:true,automatic_paid_collection:false});
 // Recovery is released by capability after real-media review, never by settings.
 export const LEARNING_PIPELINE='game-learning-extractive-2';
 const LEARNING_RECOVERY_ENABLED=false; // Candidate metadata is not release acceptance.
-export function qualityCapabilities(){return {learning:{enabled:LEARNING_RECOVERY_ENABLED&&candidateLearningContract().accepted,pipeline:LEARNING_PIPELINE,candidate_contract:candidateLearningContract()},creation:{enabled:false},delivery:{enabled:false}};}
+export function qualityCapabilities(){return {learning:{enabled:LEARNING_RECOVERY_ENABLED&&candidateLearningContract().accepted,pipeline:LEARNING_PIPELINE,candidate_contract:candidateLearningContract()},study:networkStudyCapability(),creation:{enabled:false},delivery:{enabled:false}};}
 export function qualityExecutionAllowed(capability,payload={}){
   return capability==='learn'&&LEARNING_RECOVERY_ENABLED&&candidateLearningContract().accepted&&validateLearningTaskBinding(payload).valid;
 }

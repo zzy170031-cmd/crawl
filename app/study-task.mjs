@@ -5,6 +5,7 @@ import {normalizeLocalGame} from './local-videos.mjs';
 import {GAME_STUDY_VERSION,gameStudySchema} from './game-study.mjs';
 import {validateHostOutput} from './host-assistant.mjs';
 export const STUDY_TASK_PIPELINE=GAME_STUDY_VERSION;
+const PROGRESS_STAGES=new Set(['核验固定学习来源','读取实际视频并提取3张代表画面','使用已有本地Small模型转写语音（CPU/INT8）','一次归纳执行中']);
 const keys=id=>({input:`study-task:${id}:input`,started:`study-task:${id}:inference-started`,output:`study-task:${id}:output`,result:`study-task:${id}:public-result`});
 const fail=code=>{throw Object.assign(Error(code),{code});};
 const clone=value=>structuredClone(value);
@@ -114,6 +115,11 @@ export function createStudyTaskRunner({db,captureInput,preparePacket,runStudy,re
   });
   if(!claimed)return Promise.resolve(read(id));
   const controller=new AbortController(),ctx={game:claimed.task.payload.game,learning_source:claimed.task.payload.learning_source,taskId:id,taskOwner:owner,signal:controller.signal};
+  ctx.stage=value=>{
+   if(typeof value!=='string'||!PROGRESS_STAGES.has(value))fail('STUDY_TASK_STAGE_INVALID');
+   controller.signal.throwIfAborted();
+   db.transaction(()=>{requireOwned(id,owner);db.db.prepare('UPDATE tasks SET stage=?,updated=? WHERE id=? AND owner=? AND cancelled=0').run(value,now(),id,owner);});
+  };
   const heartbeat=()=>{try{db.transaction(()=>{requireOwned(id,owner);db.db.prepare('UPDATE tasks SET lease=?,updated=? WHERE id=? AND owner=?').run(Date.now()+leaseMs,now(),id,owner);});}catch{controller.abort();}};
   const timer=setInterval(heartbeat,heartbeatMs);timer.unref?.();
   const check=()=>{controller.signal.throwIfAborted();requireOwned(id,owner);};

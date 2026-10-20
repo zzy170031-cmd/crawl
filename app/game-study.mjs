@@ -2,7 +2,7 @@
 // this module performs no acquisition, payment, retries, or production writes.
 import {createHash} from 'node:crypto';
 import {validateHostOutput} from './host-assistant.mjs';
-export const GAME_STUDY_VERSION='game-study-host-candidate-4';
+export const GAME_STUDY_VERSION='game-study-host-candidate-5';
 export const STUDY_DOMAINS=Object.freeze(['background_loop','gameplay_terms','content_types','video_and_image','duration_interaction','platform_requirements','peer_expression']);
 const KINDS=new Set(['publisher','game-guide','platform-guide','competitor-content','video-frame','raw-asr','image-page']);
 const hash=x=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex');

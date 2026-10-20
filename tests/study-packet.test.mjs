@@ -22,7 +22,7 @@ function refs(n=0){
  for(let i=0;i<n;i++){const file={path:'/controlled/page'+i+'.png',sha256:sha('page'+i)};sources.push({id:'page'+i,kind:'image-page',game,source_id:'post',read_at:at,file,coverage:{page_index:i+1,page_count:n}});images.push(file);}
  return {sources,images,files:[]};
 }
-test('selects existing readable first eight in record order; actual middle frames/full raw ASR; snapshot and classifications unchanged',async()=>{
+test('selects readable representatives using deterministic metadata diversity; actual middle frames/full raw ASR; snapshot and classifications unchanged',async()=>{
  const lib=library(10,[0]),before=structuredClone(lib),calls=[],signal=new AbortController().signal;
  lib.items.reverse();const frozen=structuredClone(lib);
  const builder=createStudyPacketBuilder({prepareMedia:async(item,options)=>{assert.equal(options.signal,signal);calls.push(item.record.source_id);const out=media(item);item.record.title='provider mutation';return out;},readReferences:async args=>{assert.equal(args.signal,signal);assert.equal(args.game,game);args.library_binding.game='provider mutation';return refs(4);}});

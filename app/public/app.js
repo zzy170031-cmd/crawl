@@ -568,6 +568,7 @@ async function loadRecords() {
   if (mode !== "hotspot")
     records = records.filter((row) => row.kind === "video");
   renderRecords();
+  renderGameState();
 }
 function sourceURL(row) {
   return (
@@ -1027,10 +1028,17 @@ function gameTasks() {
   return tasks.filter((t) => t.payload?.game === game());
 }
 const activeStates = ["queued", "running"];
+const studyEntryEnabled=()=>learningSource()==="network"&&qualityCapabilities?.study?.enabled===true&&qualityCapabilities.study.configured===true;
+const taskRoute=(task,action="")=>`${task.task_store==="game-study"?"/api/game-study-tasks":"/api/tasks"}/${task.id}${action?"/"+action:""}`;
+function savedStudyTask(){
+  if(!studyEntryEnabled()||!currentProfile?.task_id||recordCollection?.requested_scope?.purpose!=="game-research"||recordCollection.requested_scope.keyword!==game())return null;
+  return tasks.find(t=>t.id===currentProfile.task_id&&t.task_store==="game-study"&&t.state==="completed"&&t.result?.comparisonMetrics?.collection_request_id===recordCollection.latest_request?.id)||null;
+}
 function renderGameState() {
   const active = gameTasks().find(
-    (t) => t.type === "learn" && activeStates.includes(t.state),
+    (t) => t.type === "learn" && activeStates.includes(t.state)&&!t.resume_required&&(t.task_store!=="game-study"||t.payload.learning_source===learningSource()),
   );
+  const resumable=gameTasks().some(t=>t.task_store==="game-study"&&t.resume_required),saved=savedStudyTask();
   $("learn-game").disabled = learningBusy || Boolean(active) || !game();
   $("learning-source").value = learningSource();
   $("learning-source").disabled = !game();
@@ -1038,7 +1046,7 @@ function renderGameState() {
     ? "正在提交…"
     : active
       ? "学习任务进行中"
-      : "核对学习素材";
+      : saved?"查看学习档案":studyEntryEnabled()?resumable?"继续学习":"学习游戏":"核对学习素材";
   $("find-game").disabled = searchBusy || !game();
   $("upload-local-video").disabled = Boolean(localUploadController) || !game();
   $("game-status").textContent = !game()
@@ -1046,26 +1054,33 @@ function renderGameState() {
     : active
       ? active.state_label || "处理中"
       : currentProfile
-        ? currentProfile.status === "ready" ? "初学完成" : "初学待补充"
+        ? currentProfile.learning_pipeline ? "认知候选已保存" : currentProfile.status === "ready" ? "初学完成" : "初学待补充"
         : "尚未学习";
   $("game-help").textContent = currentProfile
-    ? `${game()} · 资料版本 ${currentProfile.version || "未记录"} · ${currentProfile.independent_content_count ?? currentProfile.relevant_video_ids?.length ?? 0} 组独立内容 · 更新 ${date(currentProfile.created_at)}。${currentProfile.readiness_note || ""}${currentProfile.expires_at && Date.parse(currentProfile.expires_at) < Date.now() ? "资料已到期，请更新学习。" : ""}`
+    ? currentProfile.learning_pipeline
+      ? `${game()} · 已整理 ${currentProfile.coverage?.representative_count??0} 条代表视频 · 保存 ${date(currentProfile.created_at)}。这是待复核的认知候选，缺项保留；创作与文档输出另行验收。`
+      : `${game()} · 资料版本 ${currentProfile.version || "未记录"} · ${currentProfile.independent_content_count ?? currentProfile.relevant_video_ids?.length ?? 0} 组独立内容 · 更新 ${date(currentProfile.created_at)}。${currentProfile.readiness_note || ""}${currentProfile.expires_at && Date.parse(currentProfile.expires_at) < Date.now() ? "资料已到期，请更新学习。" : ""}`
     : active
       ? `${game()} · ${active.stage || "等待执行"}。任务详情展示实际读取情况。`
       : "可联网查询，或上传本地视频保存为学习素材；上传不调用红狐，学习与创作仍分别核验质量。";
-  if(qualityCapabilities?.learning?.enabled)$("game-help").textContent+=' 初学整理主题、范围与借鉴笔记；重点拆解与交付另行验收。';
+  if(studyEntryEnabled())$("game-help").textContent+=' 学习使用现有宿主助手账号和网络，不是离线推理；不自动调用红狐查询或解析。';
+  else if(qualityCapabilities?.study?.enabled&&!qualityCapabilities.study.configured)$("game-help").textContent+=' 学习执行器尚未配置，当前可核对素材。';
+  else if(qualityCapabilities?.learning?.enabled)$("game-help").textContent+=' 初学整理主题、范围与借鉴笔记；重点拆解与交付另行验收。';
   else $("game-help").textContent+=' 先选择学习来源；当前仅可核对已保存素材，正式学习尚未恢复。两类素材都会保留。';
   $("douyin-login").href = game()
     ? `https://www.douyin.com/search/${encodeURIComponent(game())}?type=video`
     : "https://www.douyin.com/";
 }
 async function loadProfile() {
-  const target = game(),
+  const target = game(),source=learningSource(target),
     generation = gameGeneration;
-  const result = target
-    ? await api("/api/game-profile?game=" + encodeURIComponent(target))
-    : null;
-  if (target !== game() || generation !== gameGeneration) return;
+  let result=null;
+  if(target){
+    if(source==="network"){
+      result=await api("/api/game-study-profile?"+new URLSearchParams({game:target,learning_source:source}));
+    }
+  }
+  if (target !== game() || source!==learningSource(target) || generation !== gameGeneration) return;
   currentProfile = result;
   renderGameState();
   renderComposer();
@@ -1079,8 +1094,16 @@ async function learning() {
   learningBusy = true;
   renderGameState();
   try {
+    const saved=savedStudyTask();
+    if(saved){openTask(saved.id);return;}
+    if(source==="network"&&studyEntryEnabled()){
+      const task=await api("/api/game-study-tasks",request);
+      await refreshStatus();
+      if(target===game()&&source===learningSource(target)&&generation===gameGeneration){show(task.state==="completed"?"已读取保存的认知候选，没有重新学习。":"学习任务已接收；可在详情查看进度或停止。未新增红狐查询或解析。");openTask(task.id);}
+      return;
+    }
     const result=await api("/api/game-study-input",request);
-    if(target!==game()||generation!==gameGeneration)return;
+    if(target!==game()||source!==learningSource(target)||generation!==gameGeneration)return;
     const label=source==="local"?"本地视频":"联网视频";
     show(`「${target}」${label}来源已核验：${result.coverage.selected_candidates} 条候选，${result.coverage.available_originals} 条可读原片，${result.coverage.unavailable_originals} 条缺原片。未开始学习、查询或解析；正式学习仍待验收。`);
   } finally {
@@ -1161,14 +1184,14 @@ function renderTasks() {
       if (activeStates.includes(t.state))
         actions.append(
           button("取消任务", async () => {
-            await api(`/api/tasks/${t.id}/cancel`, {});
+            await api(taskRoute(t,"cancel"), {});
             await refreshStatus();
           }),
         );
       if (["failed", "needs_input", "cancelled"].includes(t.state) && t.retry_allowed)
         actions.append(
           button("补充条件后重试", async () => {
-            await api(`/api/tasks/${t.id}/retry`, {});
+            await api(taskRoute(t,"retry"), {});
             await refreshStatus();
           }),
         );
@@ -1190,6 +1213,25 @@ function openTask(id) {
   renderTaskDetail(t);
   if (!$("task-dialog").open) $("task-dialog").showModal();
 }
+function renderStudyDossier(root,result){
+  const draft=result.draft,modes={fact:"来源陈述",observation:"内容观察",inference:"分析推测",design:"创作建议"};
+  const claim=(parent,value)=>{
+    if(!value)return;parent.append(el("p",`${modes[value.mode]||"说明"}：${value.text}`));
+    if(value.references?.length){const refs=el("details");refs.append(el("summary","查看依据"));for(const ref of value.references)refs.append(el("p",`${ref.id}${ref.quote?" · "+ref.quote:" · 实际画面"}`,"small muted"));parent.append(refs);}
+  };
+  const count=result.source_counts||{};
+  root.append(el("h3","游戏认知候选"),el("p",`${count.selected??0} 条候选 · ${count.available_originals??0} 条可读原片 · ${result.coverage?.representative_count??0} 条代表视频。缺原片 ${count.unavailable_originals??0} 条；未自动补充。`,"notice"));
+  for(const [title,values]of [["游戏背景与基本活动",draft.background_and_loop],["玩家常见处境",draft.player_situations]]){root.append(el("h3",title));for(const value of values||[])claim(root,value);}
+  root.append(el("h3","必要术语"));for(const term of draft.necessary_terms||[]){root.append(el("h4",term.term));claim(root,term.explanation);if(term.uncertainty)root.append(el("p","待核对："+term.uncertainty,"muted"));}
+  root.append(el("h3","样本内容与表达"));for(const type of draft.content_types||[]){root.append(el("h4",`${type.name} · ${type.format==="video"?"视频":"图文"}`));claim(root,type.description);}for(const value of draft.expression_methods||[])claim(root,value);
+  root.append(el("h3","平台依据与制作检查"));for(const value of draft.platform_actions||[]){claim(root,value.requirement);claim(root,value.production_action);root.append(el("p","检查："+value.checkpoint),el("p","适用范围："+value.applicability,"muted"));}
+  root.append(el("h3","同类内容的表达借鉴"));for(const value of draft.peer_transfer||[]){root.append(el("h4",value.game));claim(root,value.observed_expression);claim(root,value.adaptation);root.append(el("p",`适用：${value.applicability}；不能移植：${value.not_transferable}`,"muted"));}
+  const metrics=result.comparisonMetrics||{},window=metrics.window;
+  root.append(el("h3","时长与互动样本"),el("p",window?`作品日期范围 ${window.start} 至 ${window.end}；数值仅描述已取得样本，缺失不补零，不推算曝光或最佳时长。`:"没有可比较的网络作品窗口。","muted"));
+  const stats=value=>!value||!value.known?"未知":`${value.min}–${value.max}（已知${value.known}，缺失${value.missing}）`;
+  for(const group of metrics.groups||[]){const detail=el("details");detail.append(el("summary",`${group.type} · ${group.sample_count}条 · ${group.classification_status==="reviewed"?"已有分类记录":"类型待核对"}`),el("p",`时长（秒）：${stats(group.duration_seconds)}`));for(const [key,label]of [["like_count","点赞"],["comment_count","评论"],["share_count","分享"],["collect_count","收藏"]])detail.append(el("p",`${label}：${stats(group.metrics?.[key])}`));root.append(detail);}
+  root.append(el("h3","缺项与使用边界"));for(const value of draft.unknowns||[])root.append(el("p",value.text));
+}
 function renderTaskDetail(t) {
   const root = $("task-detail"),
     request = [...(bridge?.pending || []), ...(bridge?.recent || [])].find(
@@ -1206,6 +1248,13 @@ function renderTaskDetail(t) {
     el("p", `${t.state_label || t.state} / ${t.stage || "等待执行"}`),
   );
   if (t.error) root.append(el("p", t.error, "notice"));
+  if(t.task_store==="game-study"){
+    root.append(el("p","联网原片的认知候选；代表画面与自动转写不等于完整音画核验。创作和腾讯文档输出单独验收。","notice"));
+    if(activeStates.includes(t.state))root.append(button("停止学习",async()=>{await api(taskRoute(t,"cancel"),{});await refreshStatus();}));
+    if(t.resume_required)root.append(el("p","此任务尚未在当前执行器启动。返回游戏广场点击继续学习，不会因刷新自动执行。","notice"));
+    if(t.result?.draft)renderStudyDossier(root,t.result);
+    return;
+  }
   if (t.type === "learn" && t.result?.progress) {
     const p = t.result.progress;
     root.append(el("p", `已读取 ${p.read_count || 0} 组 · 相关初学 ${p.relevant_count ?? p.verified_count ?? 0} 组 / 至少 ${p.minimum_required || 20} 组 · 复用 ${p.reused_count || 0} 条`, "notice"));
@@ -1446,7 +1495,7 @@ $("target-game").addEventListener("input", () => {
   );
 });
 $("learn-game").onclick = () => learning().catch((e) => show(e, true));
-$("learning-source").onchange = () => rememberLearningSource();
+$("learning-source").onchange = () => {rememberLearningSource();currentProfile=null;renderGameState();loadProfile().catch(error=>show(error,true));};
 $("find-game").onclick = $("sync-game").onclick = () =>
   searchGame().catch((e) => show(e, true));
 $("auto-sync").onchange = () => {

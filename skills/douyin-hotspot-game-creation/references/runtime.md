@@ -1,6 +1,6 @@
 # 共享执行接口
 
-当前开发版因真实初学质量未通过而保留服务端实验门禁。下述 learn/select 接口暂不能启动新学习或创作；它们返回明确阻断原因。list/status 与采集入口仍可使用，retry/刷新不能解除门禁。不得改用其他工具直接写腾讯来绕过门禁。
+旧 learn/select 接口仍受实验质量门禁控制，不能据此启动旧模型学习或创作。新的独立联网候选入口见末节；list/status与采集可用，刷新不会解除其他门禁。不得改用其他工具直接写腾讯来绕过门禁。
 
 本文件用于本机共享执行器。红狐配置下只有用户明确确认的游戏/热点查询可收费；原片获取另有报价与预算确认。learn绑定当前成功查询快照，直接读取已入库原片，生成机器初学资料，不调用付费搜索、不等待聊天回填、不写腾讯。select不追加红狐相关作品搜索；深入音画核对与腾讯交付依然是独立门禁，不能把初学ready当作最终交付通过。参见[game-research.md](game-research.md)。
 
@@ -25,8 +25,14 @@ JSON文件仅存本机数据目录，用于以下命令：
 
 ## 选择学习来源与输入核验（开发版）
 
-游戏广场的“学习来源”按目标游戏分别记住 `network`（联网视频）或 `local`（本地视频）。切换选项不调用接口或删除另一类素材；核对时捕获当时的游戏与选择，不因随后切换而换用输入。
+游戏广场的“学习来源”按目标游戏分别记住 `network`（联网视频）或 `local`（本地视频）。切换选项只读对应已保存档案，不触发收费查询、原片解析、模型或删除另一类素材；核对时捕获当时的游戏与选择，不因随后切换而换用输入。
 
 `POST /api/game-study-input` 使用本机会话 `x-crawl-token`，正文仅允许 `{"game":"目标游戏","learning_source":"network或local"}`。服务端只用可信存储读取对应分支：network绑定已保存当前查询和原片；local只读取当前游戏上传库，不要求红狐配置。客户端不能提供records或磁盘path。公开结果含来源、records/binding/coverage及 `action=input_check_only`、`task_created=false`、`learning_started=false`，不含内部媒体路径。
 
-当前按钮明确为“核对学习素材”，不调用模型、收费搜索、原片解析或腾讯，不创建学习任务。联网没有有效批次不能自动用本地补齐。本地少量原片可核对为partial，未知发布时间和互动保持null。旧 `/api/game-research` 不支持本地来源，不能绕过质量门禁或忽略来源后退回网络。统一学习任务的启动/取消/保存回读仍待接入验收。
+本地来源或未配置联网执行器时，按钮为“核对学习素材”，不调用模型、收费搜索、原片解析或腾讯，不创建学习任务。联网没有有效批次不能自动用本地补齐。本地少量原片可核对为partial，未知发布时间和互动保持null。旧 `/api/game-research` 不支持本地来源，不能绕过质量门禁或忽略来源后退回网络。本地学习启动仍待用户素材验收；联网入口见下一节。
+
+## 独立联网认知候选入口
+
+能力接口 `GET /api/quality-policy` 中的 `capabilities.study.enabled/configured` 均为true时，网络来源按钮启动 `POST /api/game-study-tasks`，只提交 `{game,learning_source:"network"}`。仅使用当前成功查询和已有原片，不自动补采；按元数据差异选最多8条代表，准备少量实际画面和完整自动ASR，一次归纳后保存候选。`GET /api/game-study-profile?game=...&learning_source=network` 按来源读取，`GET /api/game-study-tasks/:id` 读取进度，`POST /api/game-study-tasks/:id/cancel` 显式停止。未启动遗留任务须显式继续，GET、轮询和重启不自动推理或收费。
+
+配置 `CRAWL_STUDY_HOST_CLI` 为已安装且兼容Codex exec协议的绝对可执行路径；使用宿主现有账号和网络，不是离线，不自动安装任何助手或模型。其他助手不能假定兼容此执行协议。本地语音仍用已有Small CPU/INT8。详细合同见仓库 `docs/network-study-runtime.md`。候选档案保留待复核、缺项与实际阅读范围，不能将其提升为正式ready或据此放行创作/腾讯。率土联网与待用户提供的星际猎人本地素材分开验收。

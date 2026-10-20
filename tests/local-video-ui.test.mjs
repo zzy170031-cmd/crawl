@@ -25,7 +25,7 @@ function setup({mode='game',api,fetch}={}){
     game:()=>context.target,scope:()=>({board:1001,hours:24,category:'all',keyword:''}),
     api:async(path,body)=>{calls.push({type:'api',path,body});assert.equal(body,undefined,'list refresh cannot mutate or start learning');assert(path.startsWith('/api/hotspots?')||path.startsWith('/api/local-videos?'),'unexpected API: '+path);return api?api(path):{records:[]};},
     fetch:async(path,options)=>{calls.push({type:'fetch',path,options});assert(path.startsWith('/api/local-videos?'),'upload must stay on the local endpoint');assert.equal(options.method,'POST');return fetch?fetch(path,options):{ok:true,json:async()=>({record:{duplicate:false}})};},
-    renderRecords:()=>renders.push(plain(context.records)),show:error=>errors.push(error),
+    renderRecords:()=>renders.push(plain(context.records)),renderGameState:()=>{},show:error=>errors.push(error),
   };
   vm.runInNewContext(loader+'\n'+uploader,context);
   return {context,nodes,calls,renders,errors};

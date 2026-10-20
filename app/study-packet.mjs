@@ -5,7 +5,8 @@ import {createHash} from 'node:crypto';
 import {isAbsolute} from 'node:path';
 import {prepareGameStudy,calculateComparisonMetrics,GAME_STUDY_VERSION,GAME_STUDY_PROMPT,GAME_STUDY_TRUST,gameStudySchema} from './game-study.mjs';
 import {HOST_LIMITS} from './host-assistant.mjs';
-export const STUDY_PACKET_VERSION='study-packet-network-1';
+import {selectStudyRepresentatives} from './study-selection.mjs';
+export const STUDY_PACKET_VERSION='study-packet-network-2';
 const sha=value=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value)).digest('hex');
 const SHA=/^[a-f0-9]{64}$/,ID=/^\d{10,25}$/;
 const referenceKinds=new Set(['publisher','game-guide','platform-guide','competitor-content','image-page']);
@@ -56,7 +57,9 @@ export function createStudyPacketBuilder({prepareMedia,readReferences=async()=>(
   stop(ctx?.signal);const captured={game:ctx?.game,learning_source:ctx?.learning_source,signal:ctx?.signal,stage:ctx?.stage};
   // Each provider gets a separate copy so it cannot change the captured snapshot.
   const fixed=structuredClone(library),items=snapshot(fixed,captured);
-  const selected=fixed.records.filter(r=>r.availability==='available').slice(0,representativeLimit);
+  const selection=selectStudyRepresentatives(fixed.records,{limit:representativeLimit});
+  const byId=new Map(fixed.records.map(r=>[r.source_id,r]));
+  const selected=selection.source_ids.map(id=>byId.get(id));
   const refs=structuredClone(await readReferences({game:captured.game,learning_source:'network',library_binding:structuredClone(fixed.binding),signal:captured.signal}));
   stop(captured.signal);
   if(!refs||!Array.isArray(refs.sources)||!Array.isArray(refs.images)||!Array.isArray(refs.files)||refs.sources.some(s=>!s||!referenceKinds.has(s.kind)))fail('STUDY_PACKET_REFERENCE_INVALID');
@@ -74,6 +77,7 @@ export function createStudyPacketBuilder({prepareMedia,readReferences=async()=>(
    stop(captured.signal);const item=items.get(row.source_id);
    const prepared=await prepareMedia(structuredClone(item),{signal:captured.signal,stage:captured.stage});stop(captured.signal);
    const observed=mediaSources(prepared,item,captured.game,new Date().toISOString());
+   for(const source of observed)source.coverage.representative_selection={version:selection.version,boundary:selection.boundary};
    sources.push(...observed);images.push(observed[0].file);representative_samples.push({source_id:row.source_id,evidence_ids:observed.map(s=>s.id)});
   }
   if(!sources.length)fail('STUDY_PACKET_NO_SOURCES');

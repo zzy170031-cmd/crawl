@@ -11,9 +11,14 @@ import {deliver,composeRows} from '../app/delivery.mjs';
 import {SideBridge} from '../app/side-bridge.mjs';
 import {randomUUID} from 'node:crypto';
 import {startWorker} from '../app/worker.mjs';
-import {experimentalQualityHold,projectQualityHeldProfile,assertQualityExecutionAllowed} from '../app/quality-policy.mjs';
+import {experimentalQualityHold,projectQualityHeldProfile,assertQualityExecutionAllowed,qualityCapabilities,networkStudyEnabled} from '../app/quality-policy.mjs';
 
 const game='受控质量暂停测试';
+test('limited explicit network dossier does not release old learning, creation or delivery',()=>{
+ const caps=qualityCapabilities();assert.equal(networkStudyEnabled(),true);assert.equal(caps.study.enabled,true);assert.equal(caps.study.semantic_acceptance,false);assert.equal(caps.study.automatic_paid_collection,false);
+ for(const key of ['learning','creation','delivery'])assert.equal(caps[key].enabled,false);
+ for(const key of ['learn','create','delivery'])assert.throws(()=>assertQualityExecutionAllowed(key,{}),{code:'EXPERIMENTAL_QUALITY_HOLD'});
+});
 const profile=()=>({game,status:'ready',version:'old-ready',expires_at:new Date(Date.now()+86400000).toISOString(),
   relevant_video_ids:Array.from({length:20},(_,i)=>'video:'+String(7696356432198913300n+BigInt(i))),
   evidence:Array.from({length:20},(_,i)=>({id:'video:'+String(7696356432198913300n+BigInt(i)),kind:'video',counts_as_relevant:true,summary_quality:{status:'consistent',checks:[{relation:'supported'}]}})),

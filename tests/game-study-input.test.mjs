@@ -42,12 +42,12 @@ function browser(storage=new Map()){
  const context={Map,gameGeneration:0,learningBusy:false,target:'游戏 A',
   game:()=>context.target,$:id=>{if(!nodes.has(id))nodes.set(id,{value:'',textContent:''});return nodes.get(id);},
   localRead:(key,fallback)=>storage.has(key)?JSON.parse(storage.get(key)):fallback,localStorage:{setItem:(k,v)=>storage.set(k,v)},
-  renderGameState:()=>{},show:text=>messages.push(text),api:async(path,data)=>{calls.push({path,data});return {coverage:{selected_candidates:1,available_originals:1,unavailable_originals:0}};},
+  currentProfile:null,loadProfile:async()=>{},savedStudyTask:()=>null,studyEntryEnabled:()=>false,renderGameState:()=>{},show:text=>messages.push(text),api:async(path,data)=>{calls.push({path,data});return {coverage:{selected_candidates:1,available_originals:1,unavailable_originals:0}};},
  };
  vm.runInNewContext(piece(ui,'const learningSourceChoices=','function safeURL(')+piece(ui,'async function learning()','async function searchGame()')+piece(ui,'$("learning-source").onchange =','$("find-game").onclick'),context);
  return {context,nodes,calls,messages,storage};
 }
-test('source preferences persist per game, source onchange has zero calls and refresh retains choice',async()=>{
+test('source preferences persist per game, source onchange never acquires media and refresh retains choice',async()=>{
  const a=browser();assert.equal(a.context.learningSource(),'network');a.context.$('learning-source').value='local';a.context.$('learning-source').onchange();assert.equal(a.calls.length,0);assert.equal(a.context.learningSource(),'local');
  a.context.target='游戏 B';assert.equal(a.context.learningSource(),'network');a.context.target='游戏 A';assert.equal(a.context.learningSource(),'local');
  assert.equal(browser(a.storage).context.learningSource(),'local');
@@ -62,7 +62,7 @@ test('click captures game/source before awaiting; later selection or game change
 });
 test('actual server route is behind session token and local check bypasses network/config/legacy tasks',async()=>{
  const part=piece(server,'    if (req.method === "GET" && url.pathname === "/api/session")','    if(url.pathname===\'/api/quality-policy\'');
- const context={AbortController,createGameStudyInput,body:async req=>req.input,token:'secret',localMediaCookieName:'test',handleLocalVideos:async()=>false,localVideosWithOrigins:mustNot,
+ const context={AbortController,createGameStudyInput,body:async req=>req.input,token:'secret',localMediaCookieName:'test',handleLocalVideos:async()=>false,handleStudyHttp:async()=>false,studyRuntime:{},origin:'http://127.0.0.1:4319',localVideosWithOrigins:mustNot,
   localVideos:{list:()=>[],open:mustNot},config:{gameSource:'browser'},bridge:null,redfoxAssets:{read:mustNot},bindLatestGameCollection:mustNot,
   experimentalQualityHold:()=>({active:true}),json:(res,status,value)=>({status,value})};
  vm.runInNewContext('async function dispatch(req,res,url){'+part+'}',context);

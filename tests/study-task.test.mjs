@@ -158,3 +158,23 @@ test('profile rejects mismatched or private version checkpoints instead of retur
  assert.throws(()=>f.runner.profile(input),{code:'STUDY_TASK_PROFILE_INVALID'});
  f.db.checkpoint(resultKey,saved);assert.equal(f.runner.profile(input).task_id,task.id);
 });
+
+test('fixed progress updates require the current uncancelled unexpired owner and reject arbitrary text',async t=>{
+ const entered=deferred(),held=deferred();let context;
+ const f=fixture(t,{preparePacket:async(lib,ctx)=>{
+  context=ctx;ctx.stage('读取实际视频并提取3张代表画面');
+  assert.throws(()=>ctx.stage('/private/arbitrary upstream'),{code:'STUDY_TASK_STAGE_INVALID'});
+  entered.resolve();await held.promise;
+  return {packet:{game:ctx.game,learning_source:ctx.learning_source,library:{binding:lib.binding,records:lib.records}}};
+ }});
+ const task=await f.runner.create(input),running=f.runner.run(task.id);await entered.promise;
+ assert.equal(f.db.get(task.id).stage,'读取实际视频并提取3张代表画面');
+ f.db.db.prepare('UPDATE tasks SET lease=1 WHERE id=?').run(task.id);
+ assert.throws(()=>context.stage('一次归纳执行中'),{code:'STUDY_TASK_OWNERSHIP_LOST'});
+ f.db.db.prepare('UPDATE tasks SET lease=?,cancelled=1 WHERE id=?').run(Date.now()+30000,task.id);
+ assert.throws(()=>context.stage('一次归纳执行中'),{code:'STUDY_TASK_OWNERSHIP_LOST'});
+ f.db.db.prepare('UPDATE tasks SET cancelled=0 WHERE id=?').run(task.id);
+ f.db.db.prepare('UPDATE tasks SET owner=?,stage=? WHERE id=?').run('replacement','replacement stage',task.id);
+ assert.throws(()=>context.stage('一次归纳执行中'),{code:'STUDY_TASK_OWNERSHIP_LOST'});
+ assert.equal(f.db.get(task.id).stage,'replacement stage');held.resolve();await running;assert.equal(f.calls.infer,0);
+});
