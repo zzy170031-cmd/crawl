@@ -1,0 +1,194 @@
+CRAWL 热点游戏创作台｜WorkBuddy 安装与使用说明
+更新日期：2026年10月21日
+
+这套工具用于学习目标游戏、查询抖音热门内容、生成具体文案和分镜，并在审阅确认后输出到自己的腾讯在线表格。红狐模式不需要登录抖音或热点宝。
+
+当前为开发预览版：已验证安装包下载与解压、干净目录的后端安装启动，以及任务协议。WorkBuddy 客户端内的真实导入、看图与腾讯交付整链仍需试用验证。遇到问题请保留具体报错，不要把“已配置”当作功能已全部通过。
+
+一、下载地址
+
+1. WorkBuddy 官网：
+https://www.workbuddy.cn/
+安装桌面版并登录自己的账号。需要允许它访问你指定的本机工作目录、运行本机命令及查看图片。
+
+2. WorkBuddy 技能包 ZIP（下载后保留 ZIP，不必自己解压）：
+https://raw.githubusercontent.com/zzy170031-cmd/crawl/main/dist/douyin-hotspot-game-creation-workbuddy.zip
+
+3. 完整创作台源码 ZIP（下载后解压）：
+https://github.com/zzy170031-cmd/crawl/archive/refs/heads/main.zip
+
+仓库主页：
+https://github.com/zzy170031-cmd/crawl
+
+说明：技能包和创作台是两部分。技能包告诉 WorkBuddy 如何操作；完整仓库提供网页、后台和脚本。仅导入技能包不能代替安装完整创作台。
+
+二、在 WorkBuddy 安装 Skill
+
+1. 打开 WorkBuddy 桌面版。
+2. 左侧进入“专家·技能·连接器”，选择“技能”。
+3. 点击“添加技能”→“上传技能”。
+4. 选择刚下载的 douyin-hotspot-game-creation-workbuddy.zip。
+5. 在“已安装”中确认 douyin-hotspot-game-creation 已启用。
+6. 将完整源码 ZIP 解压到固定目录。以下将解压后的仓库文件夹统一称为“仓库目录”；它里面应直接看到 package.json、README.md、app、scripts、skills。
+7. 在 WorkBuddy 选择这个仓库目录作为工作目录。不要把技能 ZIP、源码 ZIP，或只含另一层文件夹的外层目录当作仓库目录。
+
+官方自定义技能上传说明：
+https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market
+
+三、需要准备哪些模型和运行组件
+
+模型只需要分清两类：
+
+1. 图像理解、游戏认知、文案和分镜：
+使用 WorkBuddy 自身当前账号可用的图文能力，不需要额外下载本地 Qwen 模型，也不需要安装 Codex 或 CodeBuddy CLI。
+必须能实际打开图片，不能仅根据文件名、标题推断视频内容。这部分会使用 WorkBuddy 的网络和账号额度，不是全离线运行。
+
+2. 视频语音转写：
+使用 Faster Whisper Small 多语言版。
+仓库名称：Systran/faster-whisper-small
+下载量：权重约484MB，其他文件和依赖会另占空间。
+运行方式：CPU / INT8，输出语音文字与时间戳。
+下载地址：
+https://huggingface.co/Systran/faster-whisper-small
+
+不要下载 small.en；不要用 OpenAI Whisper 的 .pt 文件替代。已有兼容模型目录可以复用，不必重复下载。
+仅查询红狐列表不需要模型；处理含语音的视频时才需要这套本地转写依赖。腾讯文档写入也不需要另外下载模型。
+
+WorkBuddy 模式不要求安装 Ollama、Qwen3-VL 8B、Qwen3.5 9B/27B 或 Qwen3 14B。
+
+运行组件（这些不是AI模型）：
+- Node.js 24或以上：https://nodejs.org/en/download
+- Python 3.11或3.12：https://www.python.org/downloads/
+- FFmpeg和ffprobe：https://ffmpeg.org/download.html
+- Git：仅选择git clone下载源码时需要，使用上面的源码ZIP可不装Git。
+
+FFmpeg安装后，ffmpeg和ffprobe命令都应能在终端运行。已有环境先检查，不要重复安装。不要在安装时为了兼容而直接使用更新的Python大版本，先按3.11/3.12准备。
+
+四、安装并初始化创作台
+
+可以先把这段发给 WorkBuddy，由它协助安装。将“你的仓库绝对路径”替换为自己的路径：
+
+“使用已安装的 douyin-hotspot-game-creation Skill，为我配置 WorkBuddy 版创作台。仓库在：你的仓库绝对路径。先读取 README、Skill 及 references/workbuddy.md，检查已有 Node.js、Python、FFmpeg 和语音模型。缺少运行依赖时协助安装；只在需要时下载多语言 Systran/faster-whisper-small，约484MB，下载前告知我。使用 node scripts/setup.mjs --host=workbuddy 初始化，不覆盖已有配置，不读取或输出我的密钥，不安装Codex或Qwen模型。告诉我如何亲自在本机填写红狐API、腾讯MCP Token和表格链接，再启动创作台。暂时不要调用收费查询或写腾讯文档。”
+
+也可以按下面命令手动安装。每行单独执行，先在终端切换到仓库目录；“你的仓库绝对路径”须替换成真实目录。
+
+【macOS】
+
+cd "你的仓库绝对路径"
+node --version
+python3.12 --version
+ffmpeg -version
+ffprobe -version
+npm ci
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements-media.txt
+node scripts/setup.mjs --host=workbuddy
+
+如果已安装的是Python3.11，将上面python3.12改为python3.11，不要直接使用系统里可能只有3.9的python3。
+
+下载语音模型（已有兼容目录可跳过）：
+.venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='Systran/faster-whisper-small', local_dir='models/faster-whisper-small')"
+
+【Windows PowerShell】
+
+Set-Location "你的仓库绝对路径"
+node --version
+py -3.12 --version
+ffmpeg -version
+ffprobe -version
+npm.cmd ci
+py -3.12 -m venv .venv
+& .\.venv\Scripts\python.exe -m pip install -r requirements-media.txt
+node scripts/setup.mjs --host=workbuddy
+
+如果只有Python3.11，将py -3.12改为py -3.11。无需激活虚拟环境，也无需放宽PowerShell执行策略。
+
+下载语音模型（已有兼容目录可跳过）：
+& .\.venv\Scripts\python.exe -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='Systran/faster-whisper-small', local_dir='models/faster-whisper-small')"
+
+初始化会创建本机 .env、data、models；不会自动下载模型，也不会覆盖已有 .env。已有配置请本人用本机编辑器检查：
+
+CRAWL_STUDY_HOST_PROVIDER=workbuddy
+CRAWL_GAME_SOURCE=redfox
+CRAWL_HOTSPOT_SOURCE=redfox
+
+此模式不需要填写 CRAWL_STUDY_HOST_CLI。CRAWL_WHISPER_MODEL 应指向完整的 Faster Whisper 模型目录；新安装默认指向仓库内 models/faster-whisper-small。配置变化后重启后台。
+
+五、启动和打开页面
+
+macOS，在仓库目录运行：
+npm run doctor -- --layer=host
+npm start
+
+Windows，在仓库目录运行：
+npm.cmd run doctor -- --layer=host
+npm.cmd start
+
+按终端显示的地址打开页面，新安装默认是：
+http://127.0.0.1:4318/
+
+端口以本机 .env 和终端输出为准。端口被占用时，用本机编辑器修改 .env 的 PORT 后重启。
+
+保持后台终端运行。下次使用仍在同一仓库目录执行 npm start（Windows用npm.cmd start）。不要双击 app/public/index.html，也不要复制别人的127.0.0.1地址端口后假定本机已启动。
+
+--layer=host 检查当前宿主配置、FFmpeg和本地Small；不是内容质量验收。不要因旧路径 --layer=analysis 的Ollama检查而继续下载Qwen模型。
+
+六、配置自己的红狐API
+
+1. 打开红狐官网，注册并登录自己的账号：
+https://redfox.hk/
+
+2. 在密钥管理中创建自己的API Key：
+https://redfox.hk/dashboard/keys
+
+3. 在自己的后台确认积分余额、接口权限及当前价格。
+4. 回创作台，在连接设置中找到“红狐API密钥”，输入Key，点击“保存并确认配置”。
+5. 也可由本人在本机 .env 填写 REDFOX_API_KEY 后重启；如果曾在网页保存过密钥，应优先在同一个网页入口更新，避免两处配置不一致。
+
+“密钥已配置”不代表余额和接口权限已经验证；一次由你明确点击的真实查询才会检验是否可用。
+
+只有点击“开始查询”才调用收费搜索。切换游戏、行业、时间和刷新本地状态不会自动发起收费查询；原片解析可能另收费，需先看预算再确认。失败后不要连续点击重试。
+
+红狐数据按接口实际范围和T+1说明使用，不当作此刻实时或抖音全库。不要把自己的Key发到聊天、群聊或GitHub。
+
+七、配置自己的腾讯文档
+
+腾讯文档需要两个东西：“本人的MCP授权Token”和“本人可编辑的在线表格链接”。只有链接不够；只登录腾讯文档客户端也不等于完成MCP授权。
+
+1. 用自己的账号打开授权入口，按页面提示授权并获取Token：
+https://docs.qq.com/scenario/open-claw.html
+
+2. 回创作台，在提示需要授权时，将Token填到“腾讯文档授权Token”输入框，点击“保存授权并检查”。如果需要手动配置，由本人用本机编辑器将Token填入 .env 的 TENCENT_DOCS_TOKEN，再重启后台。
+
+3. 在腾讯文档新建一份用于输出的“在线表格”，确认自己有编辑权限，复制链接。建议先用空白测试表，不使用已有重要内容的表格。
+4. 回创作台“连接与交付设置”，在“需要操作的腾讯文档链接”处填写链接，点击“确认文档连接”；在交付位置设置中，也可使用“保存交付位置”。
+5. WorkBuddy或其他助手里已有的腾讯授权，不会自动传给本机创作台。每位用户都使用自己的Token和表格，不要使用开发者的测试表格。
+6. 创作稿先审阅，再确认目标及具体写入计划。A方案进入“A游戏视频改编”，B方案进入“B热点联动策划”，另有“创作总览”和“来源与核验”。当前A/B方案包含“模拟成片内容（可直接使用）”列。
+
+腾讯Token、红狐Key、.env和data都留在本机，不要发送给他人。连接检查或成功写入不代表创作内容质量通过，还需检查文案、分镜、来源和游戏结合是否正确。
+
+八、日常使用顺序
+
+1. 游戏广场：输入目标游戏，点击“开始查询”。需要读取原片时先查看费用，再确认获取；也支持在目标游戏下上传本地视频。列表候选不是已经看过的视频。
+2. 游戏学习：选择联网或本地来源，启动学习；让WorkBuddy接续本轮任务。学习以基础游戏语境、常见内容类型与表达为主，不逐帧拆解全部候选。
+3. 热点广场：选择行业和时间，手动开始查询，挑选感兴趣的热门作品。也可直接在游戏广场选择一条视频进行改编。
+4. 创作任务：读取选中的实际视频，结合已保存的游戏认知，生成具体文案、分镜和模拟成片内容。先审阅，再决定是否交付。
+5. 腾讯交付：确认自己的目标表格和写入计划后再执行，完成后回表格检查各子表内容。
+
+WorkBuddy模式需要助手实际接续处理，不能只打开WorkBuddy后闲置，也不能点击网页后关闭助手就期待后台无人值守完成。
+
+启动网页学习或创作后，可把这段发给WorkBuddy，并告诉它本轮游戏及页面任务ID：
+
+“请按 douyin-hotspot-game-creation Skill 的 references/workbuddy.md，接续我刚在创作台启动的这一个任务。先确认目标游戏和任务ID，再领取请求，查看实际图片和转写，提交候选并核对原任务结果。媒体仍在准备时，只针对这个任务进行有总时限的等待。不要新增收费搜索或原片解析，不写腾讯，不重建已取消或过期任务。生成后先让我审阅。”
+
+九、遇到问题时
+
+- 网页打不开：确认后台终端仍在运行、端口正确；打开http页面，不是file页面。
+- 提示缺少模型：核对Small目录是否完整、Python依赖是否装好；不要因此下载一堆Qwen。
+- 学习一直等待：确认WorkBuddy已在本轮会话接续任务，能查看真实图片；过期后先查原任务状态，不连续重建。
+- 红狐查询失败：查看实际错误，检查自己的余额、Key及接口权限；不要反复点击产生额外费用。
+- 腾讯连接或写入失败：核对自己的MCP Token、在线表格链接和编辑权限，不能仅凭“已登录”判断。
+- 汇报问题时：提供操作系统、WorkBuddy版本、具体步骤、任务ID及已遮盖隐私的报错；不要提供Key、Token或完整.env。
+
+仓库说明和后续更新：
+https://github.com/zzy170031-cmd/crawl

@@ -43,6 +43,8 @@
 
 红狐模式无需预先登录抖音、热点宝，也不要求 Chrome/CDP。只采集列表不需要模型；原片预处理需要 FFmpeg。当前新候选入口由兼容宿主读取图文并归纳，语音使用本地多语言 Small，不必再下载 Qwen 视觉权重。WorkBuddy 使用 [Skill 协作模式](docs/assistant-installation.md#workbuddy-桌面版)，不依赖 `codex exec`；Qwen Code 的后台协议尚未适配。
 
+可直接转发的纯文本说明：[下载TXT安装说明](https://raw.githubusercontent.com/zzy170031-cmd/crawl/main/docs/workbuddy-install.txt)。
+
 WorkBuddy 桌面用户入口：[下载安装技能包](https://github.com/zzy170031-cmd/crawl/raw/refs/heads/main/dist/douyin-hotspot-game-creation-workbuddy.zip) · [安装与使用步骤](docs/assistant-installation.md#workbuddy-桌面版) · [模型清单](skills/douyin-hotspot-game-creation/references/workbuddy.md#模型需求workbuddy-模式) · [已测试范围与待验收项](docs/workbuddy-support.md)。此包为开发预览，完整服务仍需下载本仓库。
 
 ## 2. 克隆与初始化（macOS）
