@@ -22,6 +22,10 @@ function sourceBinding(library,input){
  return {game:input.game,learning_source:input.learning_source,library_id:b.library_id,library_fingerprint:b.library_fingerprint,learning_pipeline:STUDY_TASK_PIPELINE};
 }
 function publicTask(task){return task?pick(task,['id','type','state','payload','result','error','stage','cancelled','created','updated']):null;}
+function checkPublic(value){
+ const privateKeys=new Set(['path','source_path','attached_path','media','items','receipt','file','files','images','audit_dir','auditDir']);
+ if(value&&typeof value==='object')for(const [key,child]of Object.entries(value)){if(privateKeys.has(key))fail('STUDY_TASK_OUTPUT_PRIVATE');checkPublic(child);}
+}
 function completeOutput(output){
  const receipt=output?.receipt;
  if(!output||output.version!==GAME_STUDY_VERSION||receipt?.provider!=='codex-host'||receipt.status!=='completed'||receipt.owned_process_closed!==true||receipt.tool_events!==0||receipt.exec_attempts!==1||receipt.runner_retries!==0||receipt.game_study_version!==GAME_STUDY_VERSION)fail('STUDY_TASK_RECEIPT_INVALID');
@@ -46,14 +50,33 @@ function projectOutput(output,library,payload){
  });
  const source_counts={selected:library.records.length,available_originals:library.records.filter(r=>r.availability==='available').length,unavailable_originals:library.records.filter(r=>r.availability!=='available').length};
  const result={game:payload.game,learning_source:payload.learning_source,learning_pipeline:STUDY_TASK_PIPELINE,library_id:payload.library_id,library_fingerprint:payload.library_fingerprint,status,accepted:false,ready:false,draft:{...draft,status,accepted:false},coverage,comparisonMetrics:metrics,source_counts};
- const privateKeys=new Set(['path','source_path','attached_path','media','items','receipt','file','files','images','audit_dir','auditDir']);
- const checkPublic=value=>{if(value&&typeof value==='object')for(const [key,child]of Object.entries(value)){if(privateKeys.has(key))fail('STUDY_TASK_OUTPUT_PRIVATE');checkPublic(child);}};checkPublic(result);
+ checkPublic(result);
  result.profile_version=hash(result);return result;
 }
 export function createStudyTaskRunner({db,captureInput,preparePacket,runStudy,revalidateInput,leaseMs=30000,heartbeatMs=5000}){
  if(!db?.db||[captureInput,preparePacket,runStudy,revalidateInput].some(f=>typeof f!=='function')||!Number.isInteger(leaseMs)||leaseMs<20||!Number.isInteger(heartbeatMs)||heartbeatMs<1||heartbeatMs>=leaseMs)fail('STUDY_TASK_CONFIG_INVALID');
  const active=new Map();
  const read=id=>publicTask(taskFor(id));
+ function profile(input){
+  const captured=request(input);
+  const found=db.db.prepare(`SELECT id FROM tasks
+   WHERE type=? AND state=? AND json_valid(payload)
+    AND json_extract(payload,'$.learning_pipeline')=?
+    AND json_extract(payload,'$.game')=? AND json_extract(payload,'$.learning_source')=?
+   ORDER BY updated DESC,id DESC LIMIT 1`).get('learn','completed',STUDY_TASK_PIPELINE,captured.game,captured.learning_source);
+  if(!found)return null;
+  const task=taskFor(found.id),result=task.result,version=result?.profile_version;
+  if(!result||!/^[a-f0-9]{64}$/.test(version||'')||result.game!==captured.game||result.learning_source!==captured.learning_source||result.learning_pipeline!==STUDY_TASK_PIPELINE||result.library_id!==task.payload.library_id||result.library_fingerprint!==task.payload.library_fingerprint||result.accepted!==false||result.ready!==false||!['partial','needs_review'].includes(result.status))fail('STUDY_TASK_PROFILE_INVALID');
+  const {profile_version,...body}=result;
+  const saved=db.checkpoint(keys(task.id).result);
+  if(hash(body)!==version||!saved?.result||saved.sha256!==hash(result)||hash(saved.result)!==saved.sha256)fail('STUDY_TASK_PROFILE_INVALID');
+  const stored=db.checkpoint('study-profile:'+hash({game:captured.game,version}));
+  if(!stored||stored.task_id!==task.id||stored.version!==version||typeof stored.created_at!=='string')fail('STUDY_TASK_PROFILE_INVALID');
+  const {version:storedVersion,task_id,created_at,...storedResult}=stored;
+  if(hash(storedResult)!==hash(result))fail('STUDY_TASK_PROFILE_INVALID');
+  checkPublic(stored);
+  return clone(stored);
+ }
  function taskFor(id){const task=db.get(id),p=task?.payload;if(task?.type!=='learn'||p?.learning_pipeline!==STUDY_TASK_PIPELINE||Object.keys(p).sort().join(',')!=='game,learning_pipeline,learning_source,library_fingerprint,library_id')fail('STUDY_TASK_NOT_CANDIDATE');return task;}
  function owned(id,owner){const task=taskFor(id);return task.state==='running'&&task.owner===owner&&task.lease>Date.now()&&!task.cancelled;}
  function requireOwned(id,owner){if(!owned(id,owner))fail('STUDY_TASK_OWNERSHIP_LOST');}
@@ -131,5 +154,5 @@ export function createStudyTaskRunner({db,captureInput,preparePacket,runStudy,re
   active.set(id,{controller,promise});return promise;
  }
  async function cancel(id){taskFor(id);db.cancel(id);const running=active.get(id);if(running){running.controller.abort();await running.promise;}return read(id);}
- return {create,run,cancel,read};
+ return {create,run,cancel,read,profile};
 }

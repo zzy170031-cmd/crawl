@@ -107,3 +107,54 @@ test('restart settles persisted cancelled expired lease without callbacks, but l
   const result=await runner.run(other.id);assert.equal(result.state,'running');assert.equal(reopened.get(other.id).owner,'replacement-owner');assert.equal(reopened.get(other.id).lease,liveLease);assert.deepEqual(result.result,{marker:'replacement'});assert.equal(f.calls.prepare,0);assert.equal(f.calls.infer,0);assert.equal(f.calls.validate,0);
  }finally{reopened.close();}
 });
+
+test('profile reads latest completed version per game/source beyond list limit without callbacks or latest-profile fallback',async t=>{
+ let revision=0;
+ const f=fixture(t,{captureInput:async value=>{
+  const lib=library(value);if(revision){const fp=hash({value,revision});lib.binding.library_fingerprint=fp;lib.binding.library_id='library_'+fp;}
+  return lib;
+ }});
+ const networkInput={game:input.game,learning_source:'network'};
+ const network=await f.runner.create(networkInput);await f.runner.run(network.id);
+ f.db.db.prepare('UPDATE tasks SET updated=? WHERE id=?').run('2026-01-01T00:00:00Z',network.id);
+ const local=await f.runner.create(input);await f.runner.run(local.id);
+ assert.equal(f.db.profile(input.game).learning_source,'local');
+ const before={...f.calls};
+ const networkProfile=f.runner.profile(networkInput),localProfile=f.runner.profile(input);
+ assert.equal(networkProfile.task_id,network.id);assert.equal(localProfile.task_id,local.id);
+ assert.notEqual(networkProfile.version,localProfile.version);assert.equal(networkProfile.accepted,false);assert.equal(networkProfile.ready,false);
+ assert(!JSON.stringify([networkProfile,localProfile]).includes('/private'));
+ assert.equal(f.runner.profile({game:'未学习游戏',learning_source:'network'}),null);
+ assert.equal(f.runner.profile({game:"' OR 1=1 --",learning_source:'network'}),null);
+ assert.deepEqual(f.calls,before);
+ for(let i=0;i<105;i++)f.db.create('learn',{game:'noise-'+i});
+ assert.equal(f.db.list().length,100);assert.equal(f.runner.profile(networkInput).task_id,network.id);
+ // A newer completed snapshot is selected, while an even newer queued one is not.
+ revision=1;const newer=await f.runner.create(networkInput);await f.runner.run(newer.id);
+ f.db.db.prepare('UPDATE tasks SET updated=? WHERE id=?').run('2026-01-02T00:00:00Z',newer.id);
+ revision=2;await f.runner.create(networkInput);
+ const noCallback=()=>assert.fail('profile lookup must not invoke lifecycle callbacks');
+ const reader=createStudyTaskRunner({db:f.db,captureInput:noCallback,preparePacket:noCallback,runStudy:noCallback,revalidateInput:noCallback});
+ assert.equal(reader.profile(networkInput).task_id,newer.id);assert.equal(reader.profile(input).task_id,local.id);
+ const returned=reader.profile(networkInput);returned.draft.unknowns.push({domain:'background_loop',text:'changed caller copy'});
+ assert.equal(reader.profile(networkInput).draft.unknowns.length,0);
+ const onlyNetwork=await f.runner.create({game:'游戏乙',learning_source:'network'});await f.runner.run(onlyNetwork.id);
+ assert.equal(reader.profile({game:'游戏乙',learning_source:'local'}),null);
+ for(const invalid of [{game:input.game,learning_source:'combined'},{...input,path:'/private'},{game:input.game},null])
+  assert.throws(()=>reader.profile(invalid),{code:'STUDY_TASK_INPUT_INVALID'});
+});
+
+test('profile rejects mismatched or private version checkpoints instead of returning another source or latest profile',async t=>{
+ const f=fixture(t),task=await f.runner.create(input);await f.runner.run(task.id);
+ const result=f.db.get(task.id).result,key='study-profile:'+hash({game:input.game,version:result.profile_version}),stored=f.db.checkpoint(key);
+ for(const mutation of [{game:'游戏乙'},{learning_source:'network'},{task_id:'other-task'},{version:'0'.repeat(64)},{accepted:true},{receipt:{path:'/private/leak'}}]){
+  f.db.checkpoint(key,{...stored,...mutation});
+  assert.throws(()=>f.runner.profile(input),{code:'STUDY_TASK_PROFILE_INVALID'});
+ }
+ f.db.checkpoint(key,null);assert.throws(()=>f.runner.profile(input),{code:'STUDY_TASK_PROFILE_INVALID'});
+ f.db.checkpoint(key,stored);
+ const resultKey='study-task:'+task.id+':public-result',saved=f.db.checkpoint(resultKey);
+ f.db.checkpoint(resultKey,{...saved,sha256:'0'.repeat(64)});
+ assert.throws(()=>f.runner.profile(input),{code:'STUDY_TASK_PROFILE_INVALID'});
+ f.db.checkpoint(resultKey,saved);assert.equal(f.runner.profile(input).task_id,task.id);
+});
