@@ -10,6 +10,7 @@ import {createStudyReferenceReader} from './study-references.mjs';
 import {createStudyService} from './study-service.mjs';
 import {HostAssistant} from './host-assistant.mjs';
 import {runGameStudy} from './game-study.mjs';
+import {createStudyEvidenceReader} from './study-evidence-reader.mjs';
 const fail=code=>{throw Object.assign(Error(code),{code});};
 function safeDirectory(path){mkdirSync(path,{recursive:true,mode:0o700});const stat=lstatSync(path);if(!stat.isDirectory()||stat.isSymbolicLink()||realpathSync(path)!==path)fail('STUDY_RUNTIME_PATH_INVALID');return path;}
 function canonicalRoot(path){
@@ -69,5 +70,8 @@ export function createNetworkStudyRuntime({dataRoot,getCurrentCollection,readCap
   }
  });
  function close(){if(!closing){closing=(async()=>{try{await service.stop();}finally{closed=true;db.close();}})();}return closing;}
- return {...service,configured,close};
+ // Trusted internal consumer only; the HTTP projection never returns packets,
+ // audit receipts or filesystem paths from this fixed-version reader.
+ const evidence=createStudyEvidenceReader({db,dataRoot:root});
+ return {...service,configured,close,readEvidence:input=>evidence.read(input)};
 }

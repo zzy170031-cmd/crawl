@@ -4,11 +4,11 @@
 
 默认来源为 **RedFoxHub API**。用户手动点击“开始查询”才会发起计费搜索；切换游戏、行业、日期、刷新本地状态和打开页面不会自动收费。原片解析下载另有费用预览和确认，查询授权不等于原片批量下载授权。
 
-**当前验收范围：采集阶段已取得真实证据；完整模型学习、内容质量与两条创作链路到腾讯文档的交付尚未全部验收。** 六个真实查询范围和 20 条率土之滨原片的验收见 [采集记录](docs/redfox-collection-acceptance-20261019.md)。安装成功、配置成功、文件哈希通过不能替代视频理解或文档交付验收。
+**当前验收范围：采集阶段和有限用途联网认知已有真实证据；选题后创作及腾讯四子表交付使用新的独立候选流程，各自开放状态以能力接口为准。** 六个真实查询范围和20条率土之滨原片的验收见[采集记录](docs/redfox-collection-acceptance-20261019.md)。安装、配置或文件哈希通过不能替代视频理解及交付验收。
 
-学习阶段仍在开发测试：本机8B模型实测出现过摘要方向写反、版本限定丢失，简单机器复核也曾漏检，详见[游戏初学实测](docs/game-learning-acceptance-20261019.md)。不要将当前源码安装成功理解为自动策划质量已经通过；只使用采集功能可先不下载分析模型。
+历史本机8B实验出现过摘要方向写反、版本限定丢失，简单机器复核也曾漏检，详见[游戏初学实测](docs/game-learning-acceptance-20261019.md)。旧路径继续暂停；新流程复用兼容的既有宿主图文能力和本地Small，不要求再下载视觉或文本模型。只采集列表不需要分析模型。
 
-旧模型学习、创作和腾讯文档产出继续受实验质量门禁控制。经真实原片、实际页面、重启回读与独立审查，已开放独立的**联网认知候选**入口：使用已有宿主助手账号与网络，生成待复核档案，保留 `accepted=false / ready=false`。它不等于完整游戏知识、20条合格学习或双链交付通过。采集与证据查看仍可用，刷新不会解除其他门禁。
+旧模型学习、创作和单表交付继续受质量门禁控制。独立的**联网认知候选 → 选题创作候选 → 四子表审阅交付**按能力分别开放；候选始终保留 `accepted=false / ready=false`，不能当完整游戏知识、玩法事实或成片质量认证。用法见[创作与交付接口](docs/creative-candidate-runtime.md)、[四子表布局](docs/creative-template-layout.md)，真实范围和状态见[本次创作验收](docs/creative-acceptance-20261020.md)。采集与证据查看仍可用，刷新不会解除旧路径门禁。
 
 ### 两种游戏素材入口
 
@@ -18,6 +18,17 @@
 
 “学习来源”可以选择**联网视频**或**本地视频**，每个游戏分别记住选择；两类素材仍保留在素材区，选择来源不触发查询或解析。未启用学习任务时，按钮为“核对学习素材”，只检查已有可读原片、缺失数和游戏绑定。本地核验不需要红狐账号；联网核验要求已有符合当前日期范围的查询，缺少时提示手动查询，不回退到本地素材。新的独立联网任务入口及配置见[联网学习任务说明](docs/network-study-runtime.md)，正在用真实率土原片验收；不能把核对成功当学习完成。本地星际猎人学习待用户素材，暂不扩展。
 
+### 腾讯文档如何分配
+
+先核对目标工作簿的子表与字段，再确认显示的完整分表计划。
+
+- **创作总览**：路线、游戏、状态及正文定位。
+- **A游戏视频改编**：游戏广场选题的完整策划。
+- **B热点联动策划**：热点广场选题的完整策划。
+- **来源与核验**：原片与资料链接、实际读取范围和未核事项。
+
+已有兼容子表追加空白区块；缺表会列入计划，批准后才创建。字段冲突或写入未知时停止，刷新和重启不会重复写入。正文与实际超链接分别回读；样式未认证会单独提示。账号、API与腾讯目标都使用用户自己的配置。
+
 ## 1. 准备运行环境
 
 | 组件 | 用途与要求 |
@@ -25,11 +36,12 @@
 | [Node.js](https://nodejs.org/en/download) 24+、[Git](https://git-scm.com/downloads) | 本机服务、SQLite、安装代码 |
 | [Python](https://www.python.org/downloads/) 3.11 / 3.12 | 多语言语音转写；独立虚拟环境 |
 | [FFmpeg / ffprobe](https://ffmpeg.org/download.html) | 下载后检验音视频、提帧与提取音轨；两个命令都要在 PATH |
-| [Ollama](https://ollama.com/download) 0.12.7+ | 本机视觉模型服务；推荐当前稳定版 |
+| 兼容的既有宿主 CLI | 当前自动联网认知与创作使用已测试的 `codex exec` 协议；配置 `CRAWL_STUDY_HOST_CLI`，需本人账号与网络 |
+| [Ollama](https://ollama.com/download) 0.12.7+（可选） | 仅旧本机视觉实验路径；该路径仍暂停，不是新候选入口的必装依赖 |
 | 自己的红狐账号及 API Key | 付费查询和原片解析 |
 | 自己的腾讯文档 MCP 授权及目标在线表格 | 交付时需要；链接本身不是写入授权 |
 
-红狐模式无需预先登录抖音、热点宝，也不要求 Chrome/CDP。只采集列表时不需要先加载视觉和语音模型；原片预处理需要 FFmpeg，分析阶段才需要两个本机模型。Codex、Qwen Code、WorkBuddy 的对话底座不能代替它们。
+红狐模式无需预先登录抖音、热点宝，也不要求 Chrome/CDP。只采集列表不需要模型；原片预处理需要 FFmpeg。当前新候选入口由兼容宿主读取图文并归纳，语音使用本地多语言 Small，不必再下载 Qwen 视觉权重。Qwen Code、WorkBuddy 能安装 Skill 不代表其 CLI 已适配这一后台执行协议。
 
 ## 2. 克隆与初始化（macOS）
 
@@ -54,21 +66,22 @@ Windows 用户按 [Windows 安装说明](docs/install-windows.md) 使用 PowerSh
 
 新安装默认 `CRAWL_GAME_SOURCE=redfox`、`CRAWL_HOTSPOT_SOURCE=redfox`。网页保存的红狐凭据位于本机 `data/`，优先于 `.env`；已有安装若更换账号，使用原来的配置入口更新，避免混用两处配置。状态“已配置”仅表示本机有凭据；真实可用性须由用户确认的一次查询检验，诊断不会为了验证而收费。
 
-## 4. 显式下载两个模型
+## 4. 当前分析依赖与可选模型
 
-| 必需模型（分析阶段） | 标识、下载量与用途 |
+| 模型 | 标识、下载量与用途 |
 | --- | --- |
-| [Qwen3-VL 8B Instruct](https://ollama.com/library/qwen3-vl:8b-instruct) | `qwen3-vl:8b-instruct`，Q4_K_M，约 6.1 GB；阅读实际视频抽帧、字幕和场景 |
-| [Faster Whisper Small 多语言版](https://huggingface.co/Systran/faster-whisper-small) | `Systran/faster-whisper-small`，权重约 484 MB；CPU / INT8 转写中文与时间戳，不能用 `small.en` 替代 |
+| [Qwen3-VL 8B Instruct](https://ollama.com/library/qwen3-vl:8b-instruct) | 可选旧实验路径：`qwen3-vl:8b-instruct`，Q4_K_M，约 6.1 GB；已有者可保留，新候选入口不调用它，不必新下载 |
+| [Faster Whisper Small 多语言版](https://huggingface.co/Systran/faster-whisper-small) | `Systran/faster-whisper-small`，新入口含语音素材所需：权重约 484 MB；CPU / INT8 转写中文与时间戳，不能用 `small.en` 替代 |
 
 以下命令会真实下载模型，仅在尚未安装时执行。Ollama 权重默认保存在其自己的模型目录；Whisper 下载到本仓库 `models/`。运行数据和视频还需要额外磁盘空间，权重大小不是推理内存需求。
 
 ```sh
-ollama pull qwen3-vl:8b-instruct
+# 仅选择旧实验路径时才需要，不是当前新入口必需项
+# ollama pull qwen3-vl:8b-instruct
 .venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='Systran/faster-whisper-small', local_dir='models/faster-whisper-small')"
 ```
 
-已有兼容 Whisper 目录可直接设置 `CRAWL_WHISPER_MODEL` 为该目录。旧 `qwen3-vl:8b` 可保留作为可选实验模型，新安装不必下载两份；默认分析使用非思考版 Instruct。不要把 OpenAI Whisper `.pt` 文件当作 CTranslate2 模型目录。运行时只读已下载的语音模型，不隐式补下载。
+已有兼容 Whisper 目录可直接设置 `CRAWL_WHISPER_MODEL` 为该目录。已有视觉模型可按用户选择保留；当前新入口不要求下载任何新增视觉或文本模型。不要把 OpenAI Whisper `.pt` 文件当作 CTranslate2 模型目录。运行时只读已下载的语音模型，不隐式补下载。
 
 ### 模型实验与简化执行路径
 
@@ -85,7 +98,7 @@ npm start
 
 打开 [本机创作台](http://127.0.0.1:4318/)。端口冲突时在 `.env` 改 `PORT` 后重启；不要双击 `app/public/index.html`，该文件需要本机后端。
 
-启动 Ollama 后可分别检查分析和交付配置：
+下面的 analysis doctor 检查旧 Ollama 分析器，不是新宿主候选入口的就绪判据；如需检查旧路径再启动 Ollama。交付诊断不代替真实写回：
 
 ```sh
 npm run doctor -- --layer=analysis

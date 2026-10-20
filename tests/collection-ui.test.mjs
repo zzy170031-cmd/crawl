@@ -74,10 +74,10 @@ test('多个客户端反复刷新状态只读取本地接口，不触发来源�
   const composer=source.slice(source.indexOf('function renderComposer()'),source.indexOf('function sendToTask('));
   const profile=source.slice(source.indexOf('async function loadProfile()'),source.indexOf('async function learning()'));
   const calls=[],target='率土之滨',profilePath='/api/game-study-profile?'+new URLSearchParams({game:target,learning_source:'network'});
-  const allowed=new Set(['/api/tasks','/api/bridge/status','/api/quality-policy','/api/readiness',profilePath]);
+  const allowed=new Set(['/api/tasks','/api/bridge/status','/api/quality-policy','/api/template-deliveries','/api/readiness',profilePath]);
   const clients=Array.from({length:6},(_,client)=>{
     const nodes=new Map();let recordsReads=0;
-    const context={readiness:null,bridge:null,tasks:[],page:'discover',lastReadinessCheck:0,qualityCapabilities:null,currentProfile:null,gameGeneration:0,learningSource:()=> 'network',URLSearchParams,
+    const context={readiness:null,bridge:null,tasks:[],candidateDeliveries:[],page:'discover',lastReadinessCheck:0,qualityCapabilities:null,currentProfile:null,gameGeneration:0,learningSource:()=> 'network',URLSearchParams,
       api:async(path,body)=>{
         calls.push({client,path,body});assert(allowed.has(path),'refresh must not call search, check, learning, model or paid endpoints: '+path);assert.equal(body,undefined);
         if(path==='/api/readiness')return {ready:false,checking:false,sites:[{id:'douyin',state:'unknown'}]};
@@ -96,7 +96,7 @@ test('多个客户端反复刷新状态只读取本地接口，不触发来源�
     return {context,nodes,recordsReads:()=>recordsReads};
   });
   for(let round=0;round<2;round++)await Promise.all(clients.map(({context})=>context.refreshStatus()));
-  assert.equal(calls.length,60);
+  assert.equal(calls.length,6*2*allowed.size);
   assert(calls.every(({path,body})=>body===undefined&&!path.endsWith('/check')));
   for(const [client,{context,nodes,recordsReads}] of clients.entries()){
     assert.deepEqual(calls.filter(c=>c.client===client).map(c=>c.path).sort(),[...allowed,...allowed].sort());

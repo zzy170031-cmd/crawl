@@ -4,11 +4,20 @@ import {GAME_STUDY_VERSION} from './game-study.mjs';
 // review. This does not release legacy learning, creative work or delivery.
 const NETWORK_STUDY_RECOVERY_ENABLED=true;
 export const networkStudyEnabled=()=>NETWORK_STUDY_RECOVERY_ENABLED;
+// Rate-game A/B candidates and exact four-tab writes passed bounded real-media,
+// independent content, remote read-back and restart/repeat acceptance. Legacy
+// worker paths stay held; these entries retain explicit candidate/plan review.
+const CREATIVE_CANDIDATE_RECOVERY_ENABLED=true;
+export const creativeCandidateEnabled=()=>CREATIVE_CANDIDATE_RECOVERY_ENABLED;
+export const creativeCandidateCapability=()=>({enabled:CREATIVE_CANDIDATE_RECOVERY_ENABLED,output:'creative_candidate',semantic_acceptance:false,automatic_paid_collection:false,delivery_enabled:false});
+const REVIEWED_CANDIDATE_DELIVERY_ENABLED=true;
+export const reviewedCandidateDeliveryEnabled=()=>REVIEWED_CANDIDATE_DELIVERY_ENABLED;
+export const reviewedCandidateDeliveryCapability=()=>({enabled:REVIEWED_CANDIDATE_DELIVERY_ENABLED,pipeline:'four-template-delivery-1',requires_exact_draft_confirmation:true,requires_template_plan_confirmation:true,template_layout:true,automatic_resume:false});
 export const networkStudyCapability=()=>({enabled:NETWORK_STUDY_RECOVERY_ENABLED,pipeline:GAME_STUDY_VERSION,output:'candidate_dossier',semantic_acceptance:false,uses_existing_host_account_network:true,automatic_paid_collection:false});
 // Recovery is released by capability after real-media review, never by settings.
 export const LEARNING_PIPELINE='game-learning-extractive-2';
 const LEARNING_RECOVERY_ENABLED=false; // Candidate metadata is not release acceptance.
-export function qualityCapabilities(){return {learning:{enabled:LEARNING_RECOVERY_ENABLED&&candidateLearningContract().accepted,pipeline:LEARNING_PIPELINE,candidate_contract:candidateLearningContract()},study:networkStudyCapability(),creation:{enabled:false},delivery:{enabled:false}};}
+export function qualityCapabilities(){return {learning:{enabled:LEARNING_RECOVERY_ENABLED&&candidateLearningContract().accepted,pipeline:LEARNING_PIPELINE,candidate_contract:candidateLearningContract()},study:networkStudyCapability(),creative_candidate:creativeCandidateCapability(),reviewed_candidate_delivery:reviewedCandidateDeliveryCapability(),creation:{enabled:false},delivery:{enabled:false}};}
 export function qualityExecutionAllowed(capability,payload={}){
   return capability==='learn'&&LEARNING_RECOVERY_ENABLED&&candidateLearningContract().accepted&&validateLearningTaskBinding(payload).valid;
 }

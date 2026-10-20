@@ -1538,6 +1538,19 @@ dialog::backdrop {
   border-top: 1px solid var(--line);
   padding: 15px 0;
 }
+.task-modal .delivery-preview table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.task-modal .delivery-preview th,
+.task-modal .delivery-preview td {
+  padding: 8px;
+  border: 1px solid var(--line);
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .task-modal summary {
   cursor: pointer;
   font-size: 13px;

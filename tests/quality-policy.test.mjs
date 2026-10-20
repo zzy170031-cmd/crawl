@@ -16,6 +16,8 @@ import {experimentalQualityHold,projectQualityHeldProfile,assertQualityExecution
 const game='受控质量暂停测试';
 test('limited explicit network dossier does not release old learning, creation or delivery',()=>{
  const caps=qualityCapabilities();assert.equal(networkStudyEnabled(),true);assert.equal(caps.study.enabled,true);assert.equal(caps.study.semantic_acceptance,false);assert.equal(caps.study.automatic_paid_collection,false);
+ assert.equal(caps.creative_candidate.enabled,true);assert.equal(caps.creative_candidate.semantic_acceptance,false);assert.equal(caps.creative_candidate.automatic_paid_collection,false);assert.equal(caps.creative_candidate.delivery_enabled,false);
+ assert.equal(caps.reviewed_candidate_delivery.enabled,true);assert.equal(caps.reviewed_candidate_delivery.pipeline,'four-template-delivery-1');assert.equal(caps.reviewed_candidate_delivery.requires_template_plan_confirmation,true);assert.equal(caps.reviewed_candidate_delivery.automatic_resume,false);
  for(const key of ['learning','creation','delivery'])assert.equal(caps[key].enabled,false);
  for(const key of ['learn','create','delivery'])assert.throws(()=>assertQualityExecutionAllowed(key,{}),{code:'EXPERIMENTAL_QUALITY_HOLD'});
 });

@@ -62,7 +62,7 @@ test('click captures game/source before awaiting; later selection or game change
 });
 test('actual server route is behind session token and local check bypasses network/config/legacy tasks',async()=>{
  const part=piece(server,'    if (req.method === "GET" && url.pathname === "/api/session")','    if(url.pathname===\'/api/quality-policy\'');
- const context={AbortController,createGameStudyInput,body:async req=>req.input,token:'secret',localMediaCookieName:'test',handleLocalVideos:async()=>false,handleStudyHttp:async()=>false,studyRuntime:{},origin:'http://127.0.0.1:4319',localVideosWithOrigins:mustNot,
+ const context={AbortController,createGameStudyInput,body:async req=>req.input,token:'secret',localMediaCookieName:'test',handleLocalVideos:async()=>false,handleStudyHttp:async()=>false,handleCreativeHttp:async()=>false,handleCandidateDeliveryHttp:async()=>false,handleTemplateDeliveryHttp:async()=>false,templateDelivery:{},candidateDelivery:{},creativeRuntime:{},studyRuntime:{},origin:'http://127.0.0.1:4319',localVideosWithOrigins:mustNot,
   localVideos:{list:()=>[],open:mustNot},config:{gameSource:'browser'},bridge:null,redfoxAssets:{read:mustNot},bindLatestGameCollection:mustNot,
   experimentalQualityHold:()=>({active:true}),json:(res,status,value)=>({status,value})};
  vm.runInNewContext('async function dispatch(req,res,url){'+part+'}',context);

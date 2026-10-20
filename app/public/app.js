@@ -28,6 +28,7 @@ let listGeneration = 0,
   hotspotSearchBusy = false,
   polling = false;
 let destination = null;
+let candidateDeliveries = [];
 let sourceProviders = {game:"browser",hotspots:"browser"};
 let qualityCapabilities = null;
 let localUploadController = null, localUploadNotice = "";
@@ -466,9 +467,15 @@ function renderComposer() {
   );
   if (rows.some((row) => rowKey(row) === chosen))
     $("draft-source").value = chosen;
-  $("create-draft").disabled = !qualityCapabilities?.creation?.enabled || !game() || !$("draft-source").value;
+  const candidate = qualityCapabilities?.creative_candidate?.enabled && qualityCapabilities?.creative_candidate?.configured;
+  const fixedStudy = currentProfile?.game===game() && currentProfile?.learning_source==="network" && currentProfile?.task_id && currentProfile?.version;
+  $("create-draft").disabled = !(candidate && fixedStudy || qualityCapabilities?.creation?.enabled) || !game() || !$("draft-source").value;
   $("composer-help").textContent = !game()
     ? "请先到游戏广场确定目标游戏。"
+    : candidate
+      ? fixedStudy ? `${game()} · 以固定游戏认知和所选原片生成创作草稿；不追加收费搜索，审阅后另行交付。` : `${game()} · 请先在游戏广场完成联网学习，保留认知版本后再创作。`
+    : qualityCapabilities?.creative_candidate?.enabled && !qualityCapabilities?.creative_candidate?.configured
+      ? "尚未配置可用的宿主助手执行器，请检查连接与安装配置。"
     : !qualityCapabilities?.creation?.enabled
       ? "可继续选择素材；创作与腾讯文档输出须在学习质量和方案验收通过后恢复。"
     : currentProfile?.status === "ready"
@@ -1029,7 +1036,7 @@ function gameTasks() {
 }
 const activeStates = ["queued", "running"];
 const studyEntryEnabled=()=>learningSource()==="network"&&qualityCapabilities?.study?.enabled===true&&qualityCapabilities.study.configured===true;
-const taskRoute=(task,action="")=>`${task.task_store==="game-study"?"/api/game-study-tasks":"/api/tasks"}/${task.id}${action?"/"+action:""}`;
+const taskRoute=(task,action="")=>`${task.task_store==="game-study"?"/api/game-study-tasks":task.task_store==="creative-candidate"?"/api/creative-candidates":"/api/tasks"}/${task.id}${action?"/"+action:""}`;
 function savedStudyTask(){
   if(!studyEntryEnabled()||!currentProfile?.task_id||recordCollection?.requested_scope?.purpose!=="game-research"||recordCollection.requested_scope.keyword!==game())return null;
   return tasks.find(t=>t.id===currentProfile.task_id&&t.task_store==="game-study"&&t.state==="completed"&&t.result?.comparisonMetrics?.collection_request_id===recordCollection.latest_request?.id)||null;
@@ -1173,6 +1180,8 @@ function renderTasks() {
           "h3",
           t.type === "learn"
             ? `${t.payload.game} · 游戏学习`
+            : t.task_store === "creative-candidate"
+              ? `${t.payload.mode==="A"?"游戏作品改编":"热点联动"} · ${t.payload.source.source_id}`
             : t.payload.source?.title || "策划任务",
         ),
         el("p", `${t.state_label || t.state} · ${t.stage || "等待执行"}`),
@@ -1232,12 +1241,51 @@ function renderStudyDossier(root,result){
   for(const group of metrics.groups||[]){const detail=el("details");detail.append(el("summary",`${group.type} · ${group.sample_count}条 · ${group.classification_status==="reviewed"?"已有分类记录":"类型待核对"}`),el("p",`时长（秒）：${stats(group.duration_seconds)}`));for(const [key,label]of [["like_count","点赞"],["comment_count","评论"],["share_count","分享"],["collect_count","收藏"]])detail.append(el("p",`${label}：${stats(group.metrics?.[key])}`));root.append(detail);}
   root.append(el("h3","缺项与使用边界"));for(const value of draft.unknowns||[])root.append(el("p",value.text));
 }
+function renderCreativeCandidate(root,result,task){
+  const coverage=result.coverage||{},plan=result.plan;
+  root.append(el("h3","原片读取与拆解"),el("p",`已读 ${coverage.frames?.length||0} 张代表画面与${coverage.has_audio?"完整音轨自动转写":"无音轨素材"}；未连续观看动作，未核听音乐音效。`,"muted"));
+  for(const reading of result.source_reading||[]){root.append(el("p",reading.text),el("p",`结构作用：${reading.role_in_structure}`,"muted"));const detail=el("details");detail.append(el("summary","依据与读取限制"),el("p",reading.limitation));for(const loc of reading.locations||[])detail.append(el("p",`${loc.id} · ${JSON.stringify(loc.coverage)}`,"small muted"));root.append(detail);}
+  root.append(el("h3","游戏对照与结合"));
+  for(const bridge of result.game_bridge||[]){root.append(el("p",bridge.proposed_action),el("p",`成立条件：${(bridge.conditions||[]).join("；")}`,"muted"),el("p",`不适用：${bridge.non_applicable}`,"muted"));const detail=el("details");detail.append(el("summary","游戏依据"));for(const ref of bridge.game_references||[])detail.append(el("p",`${ref.id} · ${ref.quote||"实际附图"}`,"small muted"));root.append(detail);}
+  if(plan){root.append(el("h3","创作方案"),el("p",plan.meaning),el("p",plan.rationale));for(const idea of plan.ideas||[]){root.append(el("h4",idea.title),el("p",idea.bridge),el("p",`开头：${idea.hook}`),el("pre",idea.script));for(const shot of idea.shots||[])root.append(el("p",`${shot.position} · ${shot.visual}\n字幕：${shot.text}\n声音设计：${shot.sound}`));addJSON(root,"素材、制作档位与限制",{materials:idea.materials,tiers:idea.tiers,limitations:idea.limitations});}for(const gap of plan.blocking_gaps||[])root.append(el("p",gap,"notice"));}
+  if(result.draft?.rows){const detail=el("details","","delivery-preview"),table=el("table");detail.append(el("summary","查看即将写入的完整表格"));for(const [i,row]of result.draft.rows.entries()){const tr=el("tr");for(const cell of row){const td=el(i===0?"th":"td");td.append(/^https:\/\//.test(cell)?link(cell,cell):el("span",cell));tr.append(td);}table.append(tr);}detail.append(table);root.append(detail);}
+  renderTemplateDelivery(root,result,task);
+}
+function renderTemplateDelivery(root,result,task){
+  const delivery=candidateDeliveries.findLast(d=>d.candidate?.task_id===task.id&&d.candidate.result_version===result.result_version&&d.candidate.draft_sha256===result.draft_sha256);
+  if(delivery){
+    const states={prepared:"子表与字段已核对，等待确认写入",approved:"已确认分表交付",writing:"正在按子表写入并回读",verified:"分表正文与链接已核验",content_verified_links_pending:"分表正文已核验，链接属性待核验",unknown:"部分写入结果需核对，未自动重试",blocked:"交付已停止",cancelled:"交付已取消"};
+    root.append(el("h3","腾讯文档分表交付"),el("p",states[delivery.state]||delivery.state,"notice"),el("p",`目标：${delivery.target.url}`,"muted"));
+    for(const spec of delivery.templates||[])if(spec.create)root.append(el("p",`分配计划包含新子表「${spec.name}」；字段：${spec.header.join("、")}`,"muted"));
+    for(const route of delivery.routes||[]){
+      const detail=el("details","","delivery-preview"),table=el("table");
+      detail.append(el("summary",`${route.name} · 第 ${route.start_row+1} 行起 · ${route.rows.length} 行`));
+      for(const row of route.rows){const tr=el("tr");for(const cell of row){const td=el("td");td.append(/^https:\/\//.test(cell)?link(cell,cell):el("span",cell));tr.append(td);}table.append(tr);}
+      detail.append(table);root.append(detail);
+      const sheetId=(delivery.receipt?.routes||delivery.receipt?.regions)?.find(r=>r.role===route.role)?.sheet_id||route.sheet_id;
+      if(sheetId)root.append(link(`打开${route.name}`,`${delivery.target.url}?tab=${encodeURIComponent(sheetId)}`));
+    }
+    const sameTarget=destination&&destination.file_id===delivery.target.file_id&&destination.url===delivery.target.url;
+    if(delivery.state==="prepared"){
+      root.append(el("p","正文按游戏改编或热点联动分别写入；总览保存索引，来源表保存链接和读取范围。已有内容不会直接覆盖。","muted"));
+      const approve=button("按上述子表确认写入",async()=>{approve.disabled=true;try{await api(`/api/template-deliveries/${delivery.id}/approve`,{plan_sha256:delivery.plan_sha256,target:structuredClone(destination)});await refreshStatus();}finally{approve.disabled=!sameTarget;}},"primary");approve.disabled=!sameTarget;root.append(approve);
+      if(!sameTarget)root.append(el("p","当前设置的目标已变化，请重新核对子表。","notice"));
+    }
+    if(["approved","writing"].includes(delivery.state))root.append(button("停止交付",async()=>{await api(`/api/template-deliveries/${delivery.id}/cancel`,{});await refreshStatus();}));
+    if(["unknown","content_verified_links_pending"].includes(delivery.state))root.append(button("只读核对腾讯内容",async()=>{await api(`/api/template-deliveries/${delivery.id}/reconcile`,{});await refreshStatus();}));
+    if(delivery.receipt?.warnings)for(const warning of delivery.receipt.warnings)root.append(el("p",warning==="STYLE_NOT_CERTIFIED"?"字体与单元格样式未单独核验。":warning,"muted"));
+  }
+  if((!delivery||delivery.state==="prepared")&&task.state==="completed"&&result.status==="needs_review"&&qualityCapabilities?.reviewed_candidate_delivery?.enabled){
+    root.append(el("p",destination?`先核对 ${destination.url} 的四个子表与写入位置，再确认交付。核对不会写入或重新分析。`:"请先在连接与交付设置中确认腾讯表格链接。","muted"));
+    const prepare=button(delivery?"重新核对子表":"核对腾讯子表与字段",async()=>{if(!destination)throw Error("请先确认腾讯文档链接。");prepare.disabled=true;try{await api("/api/template-deliveries/prepare",{task_id:task.id,result_version:result.result_version,draft_sha256:result.draft_sha256,target:structuredClone(destination)});await refreshStatus();}finally{prepare.disabled=!destination;}},"primary");prepare.disabled=!destination;root.append(prepare);
+  }
+}
 function renderTaskDetail(t) {
   const root = $("task-detail"),
     request = [...(bridge?.pending || []), ...(bridge?.recent || [])].find(
       (r) => r.task_id === t.id && r.kind === "delivery",
     );
-  const signature = JSON.stringify([t, request, destination]);
+  const signature = JSON.stringify([t, request, destination,candidateDeliveries.filter(d=>d.candidate?.task_id===t.id)]);
   if (taskDetailSignature === signature) return;
   taskDetailSignature = signature;
   root.replaceChildren(
@@ -1248,6 +1296,13 @@ function renderTaskDetail(t) {
     el("p", `${t.state_label || t.state} / ${t.stage || "等待执行"}`),
   );
   if (t.error) root.append(el("p", t.error, "notice"));
+  if(t.task_store==="creative-candidate"){
+    root.append(el("p","基于固定游戏认知与实际原片的创作草稿；腾讯文档须单独审阅确认，交付状态见下方记录。","notice"));
+    if(activeStates.includes(t.state))root.append(button("停止创作",async()=>{await api(taskRoute(t,"cancel"),{});await refreshStatus();}));
+    if(t.resume_required)root.append(el("p","执行器已中断；刷新不会自动再次分析。保留原任务检查点。","notice"));
+    if(t.result)renderCreativeCandidate(root,t.result,t);
+    return;
+  }
   if(t.task_store==="game-study"){
     root.append(el("p","联网原片的认知候选；代表画面与自动转写不等于完整音画核验。创作和腾讯文档输出单独验收。","notice"));
     if(activeStates.includes(t.state))root.append(button("停止学习",async()=>{await api(taskRoute(t,"cancel"),{});await refreshStatus();}));
@@ -1429,8 +1484,10 @@ async function refreshStatus() {
     api("/api/bridge/status"),
     loadProfile(),
     api("/api/quality-policy"),
+    api("/api/template-deliveries"),
   ]);
   qualityCapabilities=results[3].status==='fulfilled'?results[3].value.capabilities:null;
+  candidateDeliveries=results[4].status==='fulfilled'?results[4].value:[];
   if (results[0].status === "fulfilled") tasks = results[0].value;
   if (results[1].status === "fulfilled") bridge = results[1].value;
   else {
@@ -1630,13 +1687,20 @@ $("save-topic").onclick = () => {
   }
 };
 $("create-draft").onclick = async () => {
-  if(!qualityCapabilities?.creation?.enabled)return;
+  const candidate=qualityCapabilities?.creative_candidate?.enabled&&qualityCapabilities?.creative_candidate?.configured;
+  if(!candidate&&!qualityCapabilities?.creation?.enabled)return;
   const b = $("create-draft");
+  const target=game(),generation=gameGeneration;
   b.disabled = true;
   try {
     const selected = pool().find((r) => rowKey(r) === $("draft-source").value);
     if (!selected) throw Error("请先从已确认选题中选择素材。");
-    await api("/api/creative-jobs", {
+    let created;
+    if(candidate){
+      if(currentProfile?.game!==game()||currentProfile?.learning_source!=="network"||!currentProfile.task_id||!currentProfile.version)throw Error("请先完成当前游戏的联网学习。");
+      if(selected.provider!=="redfox"||selected.kind!=="video"||!selected.collection_request_id)throw Error("当前创作入口需要已采集的真实视频和查询批次。");
+      created=await api("/api/creative-candidates",{game:game(),mode:$("mode").value,format:$("format").value,study_task_id:currentProfile.task_id,profile_version:currentProfile.version,source:{provider:"redfox",request_id:selected.collection_request_id,source_id:selected.source_id}});
+    }else await api("/api/creative-jobs", {
       game: game(),
       source_id: selected.source_id,
       kind: selected.kind,
@@ -1645,7 +1709,9 @@ $("create-draft").onclick = async () => {
     });
     show("策划任务已创建；完成实际核验和草稿后，再确认腾讯文档交付。");
     await refreshStatus();
+    if(target!==game()||generation!==gameGeneration)return;
     switchPage("tasks");
+    if(created)openTask(created.id);
   } catch (e) {
     show(e, true);
   } finally {

@@ -4,7 +4,7 @@
 
 ## 环境与依赖
 
-安装 [Git](https://git-scm.com/downloads)、[Node.js 24+](https://nodejs.org/en/download)、[Python 3.11/3.12](https://www.python.org/downloads/)、[Ollama](https://ollama.com/download/windows)（Qwen3-VL 要求 0.12.7+，推荐稳定版）和 [FFmpeg 官网列出的 Windows 构建](https://ffmpeg.org/download.html)。FFmpeg 解压后将含 `ffmpeg.exe` 和 `ffprobe.exe` 的目录加入 PATH，重新打开 PowerShell。
+安装 [Git](https://git-scm.com/downloads)、[Node.js 24+](https://nodejs.org/en/download)、[Python 3.11/3.12](https://www.python.org/downloads/)、（可选旧实验路径才需 [Ollama](https://ollama.com/download/windows)）和 [FFmpeg 官网列出的 Windows 构建](https://ffmpeg.org/download.html)。FFmpeg 解压后将含 `ffmpeg.exe` 和 `ffprobe.exe` 的目录加入 PATH，重新打开 PowerShell。
 
 ```powershell
 node --version
@@ -28,17 +28,18 @@ node scripts/setup.mjs
 分析需要以下显式下载；已有相同模型可复用：
 
 ```powershell
-ollama pull qwen3-vl:8b-instruct
+# 当前新入口不要求下载该视觉权重；仅旧实验可选
+# ollama pull qwen3-vl:8b-instruct
 & .\.venv\Scripts\python.exe -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='Systran/faster-whisper-small', local_dir='models/faster-whisper-small')"
 ```
 
-视觉 [Qwen3-VL 8B Instruct](https://ollama.com/library/qwen3-vl:8b-instruct) 为 Q4_K_M、约 6.1 GB；语音 [多语言 Faster Whisper Small](https://huggingface.co/Systran/faster-whisper-small) 权重约 484 MB，CPU/INT8，不使用 `small.en`。旧 `qwen3-vl:8b` 可保留但不必下载。助手底座不代替本机模型。模型运行内存与速度需在实际电脑验证。
+视觉 [Qwen3-VL 8B Instruct](https://ollama.com/library/qwen3-vl:8b-instruct) 为 Q4_K_M、约 6.1 GB；语音 [多语言 Faster Whisper Small](https://huggingface.co/Systran/faster-whisper-small) 权重约 484 MB，CPU/INT8，不使用 `small.en`。旧 `qwen3-vl:8b` 可保留但不必下载。当前新候选由兼容宿主承担图文归纳，不要求该视觉权重；仍需多语言 Small 处理语音。Windows 下兼容宿主执行与整条业务链尚未实测，不承诺仅安装任意助手即可自动运行。
 
 在 [腾讯文档授权入口](https://docs.qq.com/scenario/open-claw.html) 获取本人 MCP Token，在本机配置 `TENCENT_DOCS_TOKEN` 或使用创作台设置；随后填写自己的在线表格链接并确认。目标表格必须允许本人编辑，链接不是授权。原开发者或另一个助手的授权不会自动传入此服务。
 
 ## 启动与检查
 
-打开 Ollama；如果它已运行，无需重复 `ollama serve`。
+只有选择旧 Ollama 实验路径时才启动它；当前新入口使用 `CRAWL_STUDY_HOST_CLI` 指定的兼容宿主。
 
 ```powershell
 npm.cmd run doctor -- --layer=collection

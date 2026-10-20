@@ -2,7 +2,7 @@
 
 官方入口核对日期：2026-10-19。三种助手都使用本仓库 `skills/douyin-hotspot-game-creation/SKILL.md` 及其配套文件，后端接口不变。下面是安装方法；不表示本轮已在三个宿主分别完成真实模型与腾讯交付验收。
 
-先按 [README](../README.md) 安装本机 Node/Python/FFmpeg/Ollama、下载两个模型，配置本人的红狐 API Key，再启动 `npm start`。助手须有本机文件及终端权限，能访问这个后端的 localhost；云端助手的 localhost 不会自动连接到你的电脑。安装 Skill 本身不会下载模型，也不会带入任何人的密钥或腾讯权限。
+先按 [README](../README.md) 安装本机 Node/Python/FFmpeg；新候选入口使用既有兼容宿主 CLI 与本地多语言 Small，Ollama/Qwen 权重为旧实验可选配置，配置本人的红狐 API Key，再启动 `npm start`。助手须有本机文件及终端权限，能访问这个后端的 localhost；云端助手的 localhost 不会自动连接到你的电脑。安装 Skill 本身不会下载模型，也不会带入任何人的密钥或腾讯权限。
 
 ## Codex
 
@@ -22,7 +22,7 @@
 2. 最终路径为 `.qwen/skills/douyin-hotspot-game-creation/SKILL.md`。
 3. 在此项目启动 Qwen Code，用 `/skills` 检查并启用技能；请求使用 `douyin-hotspot-game-creation`。若当前版本未自动刷新，重新打开会话。
 
-Qwen Code 所连接的对话模型与本机 `qwen3-vl:8b-instruct` 是两件事：前者负责助手执行，后者由创作台实际读取视频抽帧。仍需安装 Whisper 多语言 Small。
+Qwen Code 的 Skill 安装不代表它支持当前 `codex exec` 后台协议。采集功能可用；自动学习与创作需另外配置已测试的兼容宿主和 Whisper 多语言 Small，不应为此盲目下载 Qwen 视觉模型。当前没有 Qwen Code 整链验收记录。
 
 ## WorkBuddy 桌面版
 

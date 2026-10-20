@@ -1,5 +1,5 @@
 import {serverLearningBinding} from './learning-contract.mjs';
-import {experimentalQualityHold,projectQualityHeldProfile,qualityHoldResponse,qualityCapabilities,qualityExecutionAllowed,LEARNING_PIPELINE,networkStudyEnabled} from './quality-policy.mjs';
+import {experimentalQualityHold,projectQualityHeldProfile,qualityHoldResponse,qualityCapabilities,qualityExecutionAllowed,LEARNING_PIPELINE,networkStudyEnabled,creativeCandidateEnabled,reviewedCandidateDeliveryEnabled} from './quality-policy.mjs';
 import { createServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, readdir, lstat } from "node:fs/promises";
@@ -41,6 +41,13 @@ import {createGameStudyInput} from './game-study-input.mjs';
 import {handleLocalVideos,localMediaCookie} from './local-video-http.mjs';
 import {createNetworkStudyRuntime} from './study-runtime.mjs';
 import {handleStudyHttp} from './study-http.mjs';
+import {createCreativeRuntime} from './creative-runtime.mjs';
+import {createCreativeSourceReader} from './creative-source.mjs';
+import {handleCreativeHttp} from './creative-http.mjs';
+import {createCandidateDelivery} from './candidate-delivery.mjs';
+import {handleCandidateDeliveryHttp} from './candidate-delivery-http.mjs';
+import {createTemplateDelivery} from './template-delivery.mjs';
+import {handleTemplateDeliveryHttp} from './template-delivery-http.mjs';
 const localVideos=createLocalVideoStore({folder:join(dataDir,'local-videos')});
 const localMediaCookieName=`crawl_local_media_${config.port}`;
 const verifiedLocalMatches=new Map();
@@ -78,6 +85,14 @@ const redfoxCredentialPath=join(dataDir,'redfox-credential.json');
 const studyRuntime=createNetworkStudyRuntime({dataRoot:dataDir,python:config.python,whisperModel:config.whisperModel,cliPath:config.studyHostCLI,isEnabled:networkStudyEnabled,
   getCurrentCollection:game=>{if(config.gameSource!=='redfox')throw Error('联网来源尚不支持学习');return bindLatestGameCollection(bridge,game);},
   readCapturedCollection:(game,id)=>readLearningSnapshot(bridge,bridge.get(id),game),assets:redfoxAssets});
+const creativeSources=createCreativeSourceReader({bridge});
+const creativeRuntime=createCreativeRuntime({dataRoot:dataDir,python:config.python,whisperModel:config.whisperModel,cliPath:config.studyHostCLI,isEnabled:creativeCandidateEnabled,
+  getStudyEvidence:input=>studyRuntime.readEvidence(input),
+  getSource:({game,mode,request_id,source_id})=>creativeSources.read({game,mode,request_id,source_id}),assets:redfoxAssets});
+// Historical dedicated-sheet receipts remain readable; all new writes use the
+// reviewed four-tab template layout.
+const candidateDelivery=createCandidateDelivery({dataRoot:dataDir,readCandidate:(id,options)=>creativeRuntime.readVerified(id,options),getDestination:()=>target(),isEnabled:()=>false});
+const templateDelivery=createTemplateDelivery({dataRoot:dataDir,readCandidate:(id,options)=>creativeRuntime.readVerified(id,options),getDestination:()=>target(),isEnabled:reviewedCandidateDeliveryEnabled});
 const redfoxKey=redfoxCredentialReader(redfoxCredentialPath);
 const mediaAcquisition = createMediaAcquisition({db,bridge,assets:redfoxAssets,
   resolver:createRedfoxMediaSource({apiKey:redfoxKey}),download:downloadRedfoxMedia,prepare:prepareRedfoxMedia});
@@ -263,6 +278,9 @@ const server = createServer(async (req, res) => {
       return json(res, 403, { error: "会话过期，请刷新" });
     if(await handleLocalVideos(req,res,url,{store:{...localVideos,list:localVideosWithOrigins},token,cookieName:localMediaCookieName}))return;
     if(await handleStudyHttp(req,res,url,{service:studyRuntime,token,origin,json,body}))return;
+    if(await handleCreativeHttp(req,res,url,{runtime:creativeRuntime,token,origin,json,body}))return;
+    if(await handleCandidateDeliveryHttp(req,res,url,{service:candidateDelivery,token,origin,json,body}))return;
+    if(await handleTemplateDeliveryHttp(req,res,url,{service:templateDelivery,token,origin,json,body}))return;
     if(url.pathname==='/api/game-study-input'&&req.method==='POST'){
       const input=await body(req),controller=new AbortController();
       const cancel=()=>controller.abort();req.once('aborted',cancel);res.once('close',cancel);
@@ -275,7 +293,7 @@ const server = createServer(async (req, res) => {
         return json(res,200,{...result,experimental_quality_hold:experimentalQualityHold()});
       }finally{req.off('aborted',cancel);res.off('close',cancel);}
     }
-    if(url.pathname==='/api/quality-policy'&&req.method==='GET')return json(res,200,{experimental_quality_hold:experimentalQualityHold(),capabilities:{...qualityCapabilities(),study:{...qualityCapabilities().study,configured:studyRuntime.configured()}}});
+    if(url.pathname==='/api/quality-policy'&&req.method==='GET')return json(res,200,{experimental_quality_hold:experimentalQualityHold(),capabilities:{...qualityCapabilities(),study:{...qualityCapabilities().study,configured:studyRuntime.configured()},creative_candidate:{...qualityCapabilities().creative_candidate,configured:creativeRuntime.configured()}}});
     if(req.method==='POST'&&(url.pathname==='/api/creative-jobs'||url.pathname==='/api/game-research'&&(!qualityCapabilities().learning.enabled||config.gameSource!=='redfox'))){
       const input=await body(req);
       return json(res,409,qualityHoldResponse(typeof input.game==='string'?db.profile(input.game.normalize('NFKC').trim()):null));
@@ -406,7 +424,7 @@ const server = createServer(async (req, res) => {
       return json(
         res,
         200,
-        [...db.list().map((t) => ({ ...t, state_label: stages[t.state], retry_allowed:qualityExecutionAllowed(t.type,t.payload)||t.type==='create'&&Boolean(bridge.completedDelivery?.(t.id)), retry_reason:t.type==='learn'?'此任务使用旧学习管线；请在游戏广场重新点击学习游戏':'创作与文档输出仍待独立验收' })),...studyRuntime.list().map(t=>({...t,state_label:stages[t.state],retry_allowed:false,retry_reason:'候选学习不自动重试；原任务与检查点已保留。'}))].sort((a,b)=>String(b.updated).localeCompare(String(a.updated))),
+        [...db.list().map((t) => ({ ...t, state_label: stages[t.state], retry_allowed:qualityExecutionAllowed(t.type,t.payload)||t.type==='create'&&Boolean(bridge.completedDelivery?.(t.id)), retry_reason:t.type==='learn'?'此任务使用旧学习管线；请在游戏广场重新点击学习游戏':'创作与文档输出仍待独立验收' })),...studyRuntime.list().map(t=>({...t,state_label:stages[t.state],retry_allowed:false,retry_reason:'候选学习不自动重试；原任务与检查点已保留。'})),...creativeRuntime.list().map(t=>({...t,state_label:stages[t.state],retry_allowed:false,retry_reason:'创作草稿保留原检查点，不自动重试或交付。'}))].sort((a,b)=>String(b.updated).localeCompare(String(a.updated))),
       );
     const taskRoute = url.pathname.match(
       /^\/api\/tasks\/([a-f0-9-]+)(?:\/(retry|cancel))?$/,
@@ -781,6 +799,9 @@ async function stop() {
   worker.stop();
   mediaAcquisition.stop().catch(() => {});
   collector.stop().catch(() => {});
+  await templateDelivery.close().catch(()=>{});
+  await candidateDelivery.close().catch(()=>{});
+  await creativeRuntime.close().catch(()=>{});
   await studyRuntime.close().catch(()=>{});
   server.close(()=>localVideos.close());
   setTimeout(() => process.exit(0), 1500).unref();
