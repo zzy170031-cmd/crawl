@@ -1320,14 +1320,14 @@ dialog::backdrop {
   font-weight: 600;
 }
 .game-input-wrap {
-  flex: 1;
-  min-width: 180px;
+  flex: 1 1 240px;
+  min-width: 220px;
   display: flex;
   align-items: center;
   border: 1px solid #d5cec6;
   border-radius: 6px;
   padding: 0 10px;
-  height: 41px;
+  height: 44px;
   background: var(--cream);
 }
 .game-input-wrap:focus-within {
@@ -1337,7 +1337,7 @@ dialog::backdrop {
 .game-input-wrap input {
   width: 100%;
   min-width: 90px;
-  font-size: 13px;
+  font-size: 14px;
   border: 0;
   background: none;
   outline: 0;
@@ -1355,12 +1355,37 @@ dialog::backdrop {
 }
 .game-actions {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
   align-items: center;
 }
-.game-actions .secondary {
-  font-size: 12px;
-  padding: 12px;
+.game-context .game-actions button {
+  height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.learning-source-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.learning-source-control label {
+  font-size: 14px;
+  white-space: nowrap;
+}
+.learning-source-control select {
+  appearance: none;
+  height: 44px;
+  width: 124px;
+  padding: 0 30px 0 12px;
+  border: 1px solid #d5cec6;
+  border-radius: 6px;
+  background: var(--cream) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m3 4.5 3 3 3-3' fill='none' stroke='%236c6a6a' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 10px center;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
 }
 .game-context > p {
   width: 100%;
@@ -1384,9 +1409,14 @@ dialog::backdrop {
   }
   .game-input-wrap {
     width: 100%;
+    min-width: 0;
   }
   .game-actions {
     width: 100%;
+  }
+  .learning-source-control {
+    flex: 1 1 auto;
+    justify-content: center;
   }
   .game-actions .primary,
   .game-actions .secondary {
@@ -1579,6 +1609,22 @@ dialog::backdrop {
 }
 
 /* Keep the material heading, source tabs and sync controls in one visual group. */
+.local-upload-area {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  padding: 18px 22px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.local-upload-area > div:first-child { flex: 1 1 300px; min-width: 0; }
+.local-upload-area h2 { margin: 0 0 8px; font-size: 17px; }
+.local-upload-area p { margin: 6px 0 0; line-height: 1.7; overflow-wrap: anywhere; }
+.local-upload-area #local-upload-status { flex-basis: 100%; }
 .material-controls {
   padding: 20px 22px 16px;
   margin-bottom: 18px;

@@ -1,5 +1,5 @@
 """Local speech transcription; does not claim to understand music or sound effects."""
-import argparse, datetime, hashlib, json, os, pathlib, time
+import argparse, datetime, hashlib, json, os, pathlib, re, time
 os.environ.setdefault('HF_HUB_OFFLINE', '1')
 os.environ.setdefault('HF_HUB_DISABLE_TELEMETRY', '1')
 from faster_whisper import WhisperModel
@@ -10,8 +10,9 @@ parser=argparse.ArgumentParser()
 parser.add_argument('source_id')
 parser.add_argument('--model',default=os.environ.get('CRAWL_WHISPER_MODEL','small'))
 args=parser.parse_args()
-if not (args.source_id.isdigit() and 10<=len(args.source_id)<=25):
-    raise SystemExit('Expected concrete video ID')
+if not ((args.source_id.isdigit() and 10<=len(args.source_id)<=25)
+        or re.fullmatch(r'media_[a-f0-9]{64}', args.source_id)):
+    raise SystemExit('Expected concrete video ID or content-addressed media artifact ID')
 folder=pathlib.Path(os.environ.get('CRAWL_DATA_DIR',str(pathlib.Path(__file__).resolve().parents[1]/'data'))).resolve()/'media'/args.source_id
 audio=folder/'audio.webm'
 coverage=json.loads((folder/'audio.json').read_text(encoding='utf-8'))

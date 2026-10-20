@@ -612,7 +612,11 @@ function matchesCurrentSearch(r) {
     r.payload?.purpose === "game-research" && r.payload.keyword === game();
 }
 function renderRecords() {
-  $("upload-local-video").hidden = sourceMode !== "game";
+  $("local-upload-area").hidden = sourceMode !== "game";
+  const uploadCount = records.filter(row => row.provider === "local_upload" || row.local_upload).length;
+  $("local-upload-summary").textContent = game()
+    ? `上传到「${game()}」 · 当前列表含 ${uploadCount} 条本地原片。上传后在下方素材列表预览；学习时在上方选择「本地视频」。`
+    : "先输入目标游戏，再上传对应视频。";
   $("upload-local-video").disabled = !game() || Boolean(localUploadController);
   if (sourceMode === "game")
     $("record-count").textContent = String(records.length);

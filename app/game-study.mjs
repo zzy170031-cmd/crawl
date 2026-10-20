@@ -2,7 +2,7 @@
 // this module performs no acquisition, payment, retries, or production writes.
 import {createHash} from 'node:crypto';
 import {validateHostOutput} from './host-assistant.mjs';
-export const GAME_STUDY_VERSION='game-study-host-candidate-2';
+export const GAME_STUDY_VERSION='game-study-host-candidate-3';
 export const STUDY_DOMAINS=Object.freeze(['background_loop','gameplay_terms','content_types','video_and_image','duration_interaction','platform_requirements','peer_expression']);
 const KINDS=new Set(['publisher','game-guide','platform-guide','competitor-content','video-frame','raw-asr','image-page']);
 const hash=x=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex');
@@ -27,7 +27,7 @@ export const GAME_STUDY_PROMPT=`为目标游戏建立一份可复用、简明的
 fact仅表示有原文支撑的来源陈述，不等于独立证实。游戏/平台事实须逐字引用对应publisher/game-guide/platform-guide；发行方宣传不证明玩法效果或数值。画面/实际内容观察用observation；可能用途用inference；本项目建议用design。原始ASR未核专名可保留unknown，不自动纠字或升级为游戏事实。
 引用只使用sources.id；文本quote必须该源连续原字，实际图片引用quote留空。不能引用未附画面或把语音当字幕。每个有内容的条目须有引用。缺材料就空数组并写unknown，不补造图文案例、竞品作品、平台分值、播放量/曝光量、最佳时长、点赞率或因果效果。时长和互动由程序另附，勿在正文另算或承诺效果。
 仅有竞品发行方简介时，最多提出明确inference假设，不能写观察到创作案例；peer_transfer须写清不可直接移植的规则。平台公约与专项优质认证不同，保留适用范围及未知修订日。输出一份短档案，不声称已完成学习、人工复核、平台认证或可恢复创作。`;
-export const GAME_STUDY_TRUST='Caller supplies server-origin collection, publisher identity, source read scope and file derivation. Hash/exact-reference checks prove packet consistency, not authenticity, semantic accuracy or useful understanding. Host uses existing account/network; not offline. Coverage is evidence availability, never production readiness. Independent semantic and application entry/save/read-back acceptance remain required.';
+export const GAME_STUDY_TRUST='Caller supplies a server-origin collection or single-source library, publisher identity, source read scope and file derivation. Hash/exact-reference checks prove packet consistency, not authenticity, semantic accuracy or useful understanding. Host uses existing account/network; not offline. Coverage is evidence availability, never production readiness. Independent semantic and application entry/save/read-back acceptance remain required.';
 function day(s){if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(s)||Number.isNaN(Date.parse(s+'T00:00:00Z'))||new Date(s+'T00:00:00Z').toISOString().slice(0,10)!==s)error('STUDY_DATE_INVALID');return s;}
 function timestamp(s){if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(s)||!Number.isFinite(Date.parse(s)))error('STUDY_DATE_INVALID');day(s.slice(0,10));return s;}
 function shanghaiDay(s){timestamp(s);return new Date(Date.parse(s)+8*3600000).toISOString().slice(0,10);}
@@ -37,11 +37,84 @@ const substantive=s=>(text(s.content)||!!s.file)&&!!s.coverage;
 const isImage=s=>!!s.file&&['video-frame','image-page','competitor-content'].includes(s.kind);
 const hasActual=s=>substantive(s)&&(!['video-frame','image-page'].includes(s.kind)||!!s.file);
 
+// Reject lossy JSON coercion before cloning: NaN/Infinity are not unknown data.
+function assertJSONSafe(value,ancestors=new Set(),depth=0){
+ if(depth>64)error('STUDY_NON_JSON_INPUT');
+ if(value===null||typeof value==='string'||typeof value==='boolean')return;
+ if(typeof value==='number'){if(!Number.isFinite(value))error('STUDY_NON_JSON_INPUT');return;}
+ if(typeof value!=='object'||ancestors.has(value))error('STUDY_NON_JSON_INPUT');
+ const array=Array.isArray(value),prototype=Object.getPrototypeOf(value);
+ if(!array&&prototype!==Object.prototype&&prototype!==null)error('STUDY_NON_JSON_INPUT');
+ if(Object.getOwnPropertySymbols(value).length)error('STUDY_NON_JSON_INPUT');
+ ancestors.add(value);
+ const keys=Object.keys(value);
+ if(Object.getOwnPropertyNames(value).length!==keys.length+(array?1:0))error('STUDY_NON_JSON_INPUT');
+ if(array&&(keys.length!==value.length||keys.some((key,index)=>key!==String(index))))error('STUDY_NON_JSON_INPUT');
+ for(const key of keys){const d=Object.getOwnPropertyDescriptor(value,key);if(!d||!Object.hasOwn(d,'value'))error('STUDY_NON_JSON_INPUT');assertJSONSafe(d.value,ancestors,depth+1);}
+ ancestors.delete(value);
+}
+function publicKeys(value,allowed,children=[]){if(!obj(value)||Object.keys(value).some(key=>!allowed.includes(key)||!children.includes(key)&&value[key]!==null&&typeof value[key]==='object'))error('STUDY_LIBRARY_PRIVATE_FIELDS');}
+const ORIGIN_FIELDS=['provider','source_id','game','kind','title','source_url','author','collection_request_id','collected_at','uploaded_at','published_at','published_date','publication_date','publication_precision','duration_ms','like_count','comment_count','share_count','collect_count','learning_status'];
+function validatePublicLibrary(packet){
+ publicKeys(packet,['game','learning_source','library','sources','representative_samples'],['library','sources','representative_samples']);
+ const l=packet.library;publicKeys(l,['binding','records'],['binding','records']);
+ publicKeys(l.binding,['source_provider','library_id','library_fingerprint','game','collection'],['collection']);
+ const c=l.binding.collection;if(c!==null){publicKeys(c,['source_provider','collection_request_id','collection_fingerprint','collected_at','window'],['window']);publicKeys(c.window,['start_date','end_date','update_policy']);}
+ if(!Array.isArray(l.records))error('STUDY_LIBRARY_INVALID');
+ for(const row of l.records){
+  publicKeys(row,[...ORIGIN_FIELDS,'library_id','origins','sha256','availability','unavailable_reason','classification','relevance'],['origins','classification']);
+  if(!Array.isArray(row.origins))error('STUDY_LIBRARY_ORIGINS_INVALID');
+  for(const origin of row.origins)publicKeys(origin,ORIGIN_FIELDS);
+  if(row.classification!=null)publicKeys(row.classification,['label','status','evidence_ids'],['evidence_ids']);
+ }
+}
+
+// A library is a separately bound server input, never a synthetic RedFox query.
+function studyRecordContext(packet){
+ const hasCollection=Object.hasOwn(packet,'collection'),hasLibrary=Object.hasOwn(packet,'library');
+ if(hasCollection===hasLibrary)error('STUDY_INPUT_SOURCE_INVALID');
+ if(hasLibrary)validatePublicLibrary(packet);
+ if(hasCollection){
+  const c=packet.collection;
+  if(packet.learning_source!=null&&packet.learning_source!=='network')error('STUDY_INPUT_SOURCE_INVALID');
+  if(!obj(c)||!text(c.request_id)||!Array.isArray(c.records)||c.records.length<20||c.records.length>30)error('STUDY_PACKET_INVALID');
+  if(!obj(c.window)||c.window.timezone!=='Asia/Shanghai'||day(c.window.start)>day(c.window.end))error('STUDY_WINDOW_INVALID');
+  if(c.collected_at!=null)timestamp(c.collected_at);
+  return {kind:'collection',learning_source:'network',records:c.records,window:c.window,request_id:c.request_id};
+ }
+ const l=packet.library,b=l?.binding,source=packet.learning_source;
+ if(!['network','local'].includes(source)||!obj(l)||!obj(b)||b.source_provider!=='game_study_library'||b.game!==packet.game||!text(b.library_fingerprint)||!/^[a-f0-9]{64}$/.test(b.library_fingerprint)||b.library_id!=='library_'+b.library_fingerprint||!Array.isArray(l.records)||l.records.length>30)error('STUDY_LIBRARY_INVALID');
+ if(!l.records.length)error('STUDY_NO_SOURCES');
+ if(source==='local'){
+  if(b.collection!==null)error('STUDY_INPUT_SOURCE_INVALID');
+  return {kind:'library',learning_source:source,records:l.records,window:null,request_id:null};
+ }
+ const c=b.collection,w=c?.window;
+ if(!obj(c)||c.source_provider!=='redfox'||!text(c.collection_request_id)||!/^[a-f0-9]{64}$/.test(c.collection_fingerprint||'')||!obj(w))error('STUDY_LIBRARY_INVALID');
+ if(day(w.start_date)>day(w.end_date))error('STUDY_WINDOW_INVALID');timestamp(c.collected_at);
+ return {kind:'library',learning_source:source,records:l.records,request_id:c.collection_request_id,window:{start:w.start_date,end:w.end_date,timezone:'Asia/Shanghai'}};
+}
+function validateLibraryOrigin(r,scope,game){
+ if(!obj(r)||r.game!==game||r.kind!=='video')error('STUDY_CROSS_GAME_RECORD');
+ if(scope.learning_source==='local'){
+  if(r.provider!=='local_upload'||!/^local_[a-f0-9]{64}$/.test(r.source_id||''))error('STUDY_INPUT_SOURCE_INVALID');
+  for(const k of ['published_at','published_date','publication_date','like_count','comment_count','share_count','collect_count','collection_request_id','collected_at','author','source_url'])if(r[k]!==null)error('STUDY_LOCAL_METADATA_INVALID');
+  for(const k of ['published_text','publish_time_raw','play_count','score','source_updated_at'])if(r[k]!=null)error('STUDY_LOCAL_METADATA_INVALID');
+  timestamp(r.uploaded_at);
+ }else{
+  if(r.provider!=='redfox'||!/^\d{10,25}$/.test(r.source_id||'')||r.source_url!==`https://www.douyin.com/video/${r.source_id}`||r.collection_request_id!==scope.request_id)error('STUDY_INPUT_SOURCE_INVALID');
+  if(r.uploaded_at!==null)error('STUDY_INPUT_SOURCE_INVALID');
+ }
+ let d=null;if(r.published_date!=null)d=day(r.published_date);if(r.published_at!=null){const at=shanghaiDay(r.published_at);if(d&&d!==at)error('STUDY_DATE_MISMATCH');d=at;}
+ if(r.publication_date!=null&&(day(r.publication_date)!==d))error('STUDY_DATE_MISMATCH');
+ if(d&&(!scope.window||d<scope.window.start||d>scope.window.end))error('STUDY_OUTSIDE_WINDOW');
+ for(const k of ['like_count','comment_count','share_count','collect_count'])if(r[k]!=null&&(!Number.isSafeInteger(r[k])||r[k]<0))error('STUDY_METRIC_INVALID');
+}
+
 export function prepareGameStudy(original,{images=[],files=[]}={}){
- if(!obj(original))error('STUDY_PACKET_INVALID');const packet=JSON.parse(JSON.stringify(original));
- if(!text(packet.game)||!obj(packet.collection)||!text(packet.collection.request_id)||!Array.isArray(packet.collection.records)||packet.collection.records.length<20||packet.collection.records.length>30||!Array.isArray(packet.sources)||!Array.isArray(packet.representative_samples))error('STUDY_PACKET_INVALID');
- const w=packet.collection.window;if(!obj(w)||w.timezone!=='Asia/Shanghai'||day(w.start)>day(w.end))error('STUDY_WINDOW_INVALID');
- if(packet.collection.collected_at!=null)timestamp(packet.collection.collected_at);
+ if(!obj(original))error('STUDY_PACKET_INVALID');assertJSONSafe(original);const packet=JSON.parse(JSON.stringify(original));
+ if(!text(packet.game)||!Array.isArray(packet.sources)||!Array.isArray(packet.representative_samples))error('STUDY_PACKET_INVALID');
+ const recordContext=studyRecordContext(packet),w=recordContext.window;
  if(!Array.isArray(images)||!Array.isArray(files))error('STUDY_FILE_BINDING_INVALID');images.forEach(validateFile);files.forEach(validateFile);
  const attachments=new Map(images.map((f,i)=>[fileKey(f),i+1]));if(attachments.size!==images.length)error('STUDY_FILE_BINDING_INVALID');
  const bySource=new Map();
@@ -58,13 +131,19 @@ export function prepareGameStudy(original,{images=[],files=[]}={}){
   if(!text(s.content)&&!s.file)error('STUDY_SOURCE_INVALID');bySource.set(s.id,s);
  }
  if(images.some(f=>!packet.sources.some(s=>isImage(s)&&fileKey(s.file)===fileKey(f))))error('STUDY_UNMAPPED_IMAGE');
- const records=new Map();
- for(const r of packet.collection.records){
+ const records=new Map(),originIds=new Set();
+ for(const r of recordContext.records){
   if(!obj(r)||!text(r.source_id)||records.has(r.source_id))error('STUDY_CANDIDATE_DUPLICATE_OR_INVALID');records.set(r.source_id,r);
+  if(recordContext.kind==='library'){
+   validateLibraryOrigin(r,recordContext,packet.game);
+   if(!Array.isArray(r.origins)||!r.origins.length||!obj(r.origins[0])||r.origins[0].source_id!==r.source_id)error('STUDY_LIBRARY_ORIGINS_INVALID');
+   for(const origin of r.origins){validateLibraryOrigin(origin,recordContext,packet.game);if(originIds.has(origin.source_id))error('STUDY_LIBRARY_ORIGINS_INVALID');originIds.add(origin.source_id);}
+   if(recordContext.learning_source==='local'&&(r.sha256!==r.source_id.slice(6)||r.origins.some(o=>o.source_id!==r.source_id)))error('STUDY_LIBRARY_ORIGINS_INVALID');
+  }
   if(r.game!=null&&r.game!==packet.game)error('STUDY_CROSS_GAME_RECORD');
-  if(r.collection_request_id!=null&&r.collection_request_id!==packet.collection.request_id)error('STUDY_CROSS_COLLECTION');
+  if(r.collection_request_id!=null&&r.collection_request_id!==recordContext.request_id)error('STUDY_CROSS_COLLECTION');
   let d=null;if(r.published_date!=null)d=day(r.published_date);if(r.published_at!=null){const at=shanghaiDay(r.published_at);if(d&&d!==at)error('STUDY_DATE_MISMATCH');d=at;}
-  if(d&&(d<w.start||d>w.end))error('STUDY_OUTSIDE_WINDOW');
+  if(d&&(!w||d<w.start||d>w.end))error('STUDY_OUTSIDE_WINDOW');
   if(r.collected_at!=null){const collectedDay=shanghaiDay(r.collected_at);if(d&&collectedDay<d)error('STUDY_DATE_MISMATCH');}
   for(const k of ['like_count','comment_count','share_count','collect_count'])if(r[k]!=null&&(!Number.isSafeInteger(r[k])||r[k]<0))error('STUDY_METRIC_INVALID');
   if(r.duration_ms!=null&&(!Number.isFinite(r.duration_ms)||r.duration_ms<0))error('STUDY_METRIC_INVALID');
@@ -72,25 +151,29 @@ export function prepareGameStudy(original,{images=[],files=[]}={}){
   if(r.classification!=null){const c=r.classification;if(!obj(c)||!text(c.label)||!['candidate','reviewed'].includes(c.status)||!Array.isArray(c.evidence_ids))error('STUDY_CLASSIFICATION_INVALID');
    if(c.status==='reviewed'&&!c.evidence_ids.length)error('STUDY_CLASSIFICATION_INVALID');for(const id of c.evidence_ids){const s=bySource.get(id);if(!s||s.source_id!==r.source_id||s.game!==packet.game||!hasActual(s))error('STUDY_CLASSIFICATION_INVALID');}}
  }
+ if(recordContext.kind==='library')for(const source of packet.sources){
+  if(['video-frame','raw-asr'].includes(source.kind)&&(source.game!==packet.game||!originIds.has(source.source_id)))error('STUDY_SOURCE_NOT_IN_LIBRARY');
+ }
  const represented=new Set();for(const sample of packet.representative_samples){
   if(!obj(sample)||!text(sample.source_id)||represented.has(sample.source_id)||!records.has(sample.source_id)||!Array.isArray(sample.evidence_ids)||!sample.evidence_ids.length)error('STUDY_REPRESENTATIVE_INVALID');
   represented.add(sample.source_id);for(const id of sample.evidence_ids){const s=bySource.get(id);if(!s||s.source_id!==sample.source_id||s.game!==packet.game||!hasActual(s)||!['video-frame','raw-asr','image-page'].includes(s.kind))error('STUDY_REPRESENTATIVE_INVALID');}
  }
- return {packet,images:structuredClone(images),files:structuredClone(files),bySource,records,packet_sha256:hash(packet),file_binding_sha256:hash({images,files})};
+ return {packet,images:structuredClone(images),files:structuredClone(files),bySource,records,recordContext,packet_sha256:hash(packet),file_binding_sha256:hash({images,files})};
 }
 
 function stats(values,total){const sorted=values.toSorted((a,b)=>a-b),n=sorted.length;return {known:n,missing:total-n,min:n?sorted[0]:null,max:n?sorted[n-1]:null,median:n?(sorted[Math.floor((n-1)/2)]+sorted[Math.ceil((n-1)/2)])/2:null};}
 export function calculateComparisonMetrics(prepared){
- const {packet}=prepared,groups=new Map(),excluded=[];
- for(const r of packet.collection.records){if(!r.published_date&&!r.published_at){excluded.push({source_id:r.source_id,reason:'publication_date_unknown'});continue;}
+ const {recordContext}=prepared,groups=new Map(),excluded=[];
+ if(recordContext.learning_source==='local')return {learning_source:'local',collection_request_id:null,window:null,groups:[],excluded:recordContext.records.map(r=>({source_id:r.source_id,reason:'no_network_publication_window'})),not_inferred:['play_count','exposure','rates','optimal_duration','causality','platform_quality_score'],boundary:'本地上传没有网络发布窗口或互动数据；上传时间不代替发布时间，不进入联网同窗口比较。'};
+ for(const r of recordContext.records){if(!r.published_date&&!r.published_at){excluded.push({source_id:r.source_id,reason:'publication_date_unknown'});continue;}
   const c=r.classification,label=c?.label??'未分类',classification_status=c?.status??'unknown',format=r.kind==='video'?'video':['image','image-text','image_post'].includes(r.kind)?'image-text':'unknown',relevance=r.relevance??'uncertain';
   const key=JSON.stringify([label,classification_status,format,relevance]);if(!groups.has(key))groups.set(key,{type:label,classification_status,format,relevance,rows:[]});groups.get(key).rows.push(r);
  }
  const result=[...groups.values()].map((g,index)=>{const rows=g.rows,metrics={};for(const k of ['like_count','comment_count','share_count','collect_count'])metrics[k]=stats(rows.filter(r=>r[k]!=null).map(r=>r[k]),rows.length);
   const durations=g.format==='video'?rows.filter(r=>r.duration_ms!=null).map(r=>r.duration_ms/1000):[];
-  return {id:'M'+index,type:g.type,classification_status:g.classification_status,classification_origin:'trusted_caller_not_this_generation',format:g.format,relevance:g.relevance,sample_count:rows.length,source_ids:rows.map(r=>r.source_id),window:packet.collection.window,duration_seconds:g.format==='video'?stats(durations,rows.length):null,metrics};
+  return {id:'M'+index,type:g.type,classification_status:g.classification_status,classification_origin:'trusted_caller_not_this_generation',format:g.format,relevance:g.relevance,sample_count:rows.length,source_ids:rows.map(r=>r.source_id),window:recordContext.window,duration_seconds:g.format==='video'?stats(durations,rows.length):null,metrics};
  });
- return {collection_request_id:packet.collection.request_id,window:packet.collection.window,groups:result,excluded,not_inferred:['play_count','exposure','rates','optimal_duration','causality','platform_quality_score'],boundary:'同一采集请求/窗口内按调用方类型与相关性标记描述；候选/已审分开，缺值不是0；不代表全游戏分布。'};
+ return {learning_source:'network',collection_request_id:recordContext.request_id,window:recordContext.window,groups:result,excluded,not_inferred:['play_count','exposure','rates','optimal_duration','causality','platform_quality_score'],boundary:'同一采集请求/窗口内按调用方类型与相关性标记描述；候选/已审分开，缺值不是0；不代表全游戏分布。'};
 }
 
 // Only an actual complete, ordered page set can stand for image-post structure.
@@ -152,8 +235,8 @@ export function validateGameStudyDraft(raw,prepared){
 export function studyCoverage(prepared,comparisonMetrics,draft){
  const domains=sourceCoverage(prepared,comparisonMetrics),outputs={background_loop:draft.background_and_loop.length>0&&draft.player_situations.length>0,gameplay_terms:draft.necessary_terms.length>0,content_types:draft.content_types.length>0,video_and_image:['video','image-text'].every(f=>draft.content_types.some(c=>c.format===f)),duration_interaction:true,platform_requirements:draft.platform_actions.length>0,peer_expression:new Set(draft.peer_transfer.filter(p=>p.observed_expression.mode==='observation').map(p=>p.game)).size>=2};
  for(const [k,d]of Object.entries(domains)){d.output_present=outputs[k];if(!outputs[k]){d.status='missing';d.missing.push('grounded_output_missing');}}
- const all=Object.values(domains).every(d=>d.status==='available');
- return {status:all?'source_complete_pending_review':'partial',accepted:false,ready:false,domains,candidate_count:prepared.packet.collection.records.length,representative_count:prepared.packet.representative_samples.length,relatedness_counts:Object.fromEntries(['related','uncertain','unrelated'].map(k=>[k,prepared.packet.collection.records.filter(r=>(r.relevance??'uncertain')===k).length])),image_pages:prepared.packet.sources.filter(s=>s.kind==='image-page').map(s=>({id:s.id,source_id:s.source_id,page_index:s.coverage?.page_index??null,page_count:s.coverage?.page_count??null})),remaining_acceptance:['independent_semantic_and_usefulness_review','real_entry_save_readback_and_cross_game_test'],boundary:GAME_STUDY_TRUST};
+ const enoughCandidates=prepared.recordContext.records.length>=20,all=enoughCandidates&&Object.values(domains).every(d=>d.status==='available');
+ return {status:all?'source_complete_pending_review':'partial',accepted:false,ready:false,domains,learning_source:prepared.recordContext.learning_source,candidate_pool_complete:enoughCandidates,candidate_count:prepared.recordContext.records.length,representative_count:prepared.packet.representative_samples.length,relatedness_counts:Object.fromEntries(['related','uncertain','unrelated'].map(k=>[k,prepared.recordContext.records.filter(r=>(r.relevance??'uncertain')===k).length])),image_pages:prepared.packet.sources.filter(s=>s.kind==='image-page').map(s=>({id:s.id,source_id:s.source_id,page_index:s.coverage?.page_index??null,page_count:s.coverage?.page_count??null})),remaining_acceptance:['independent_semantic_and_usefulness_review','real_entry_save_readback_and_cross_game_test'],boundary:GAME_STUDY_TRUST};
 }
 export async function runGameStudy(packet,{host,images=[],files=[],auditDir,signal}={}){
  stop(signal);if(typeof host?.json!=='function')error('STUDY_HOST_REQUIRED');const prepared=prepareGameStudy(packet,{images,files}),comparisonMetrics=calculateComparisonMetrics(prepared);

@@ -69,11 +69,13 @@
           <div class="game-actions">
             <button id="find-game" class="secondary">查找游戏素材</button
             >
-            <label for="learning-source">学习来源</label>
-            <select id="learning-source" aria-label="学习来源">
-              <option value="network">联网视频</option>
-              <option value="local">本地视频</option>
-            </select>
+            <div class="learning-source-control">
+              <label for="learning-source">学习来源</label>
+              <select id="learning-source" aria-label="学习来源">
+                <option value="network">联网视频</option>
+                <option value="local">本地视频</option>
+              </select>
+            </div>
             <button id="learn-game" class="primary">核对学习素材</button>
           </div>
           <p id="game-help">输入目标游戏，查找或上传素材，再选择学习来源。</p>
@@ -111,6 +113,19 @@
               创作课堂
             </button>
           </div>
+          <section id="local-upload-area" class="local-upload-area" aria-labelledby="local-upload-heading">
+            <div>
+              <h2 id="local-upload-heading">本地视频素材</h2>
+              <p id="local-upload-summary">先输入目标游戏，再上传对应视频。</p>
+              <p class="small muted">支持 MP4、MOV、M4V、WebM；每批最多20个，单个不超过1GB。文件保存到本机，上传不消耗红狐积分。</p>
+            </div>
+            <div class="button-row">
+              <button class="secondary" id="upload-local-video">选择视频上传</button>
+              <button class="secondary" id="cancel-local-upload" hidden>停止上传</button>
+              <input id="local-video-files" type="file" accept=".mp4,.mov,.m4v,.webm,video/mp4,video/quicktime,video/webm" multiple hidden />
+            </div>
+            <p id="local-upload-status" class="small muted" role="status" aria-live="polite" hidden></p>
+          </section>
           <div class="material-controls">
             <div class="section-heading">
               <div>
@@ -118,15 +133,11 @@
                 <p id="material-summary">正在读取本地素材…</p>
               </div>
               <div class="button-row">
-                <button class="secondary" id="upload-local-video">上传本地视频</button>
-                <button class="secondary" id="cancel-local-upload" hidden>停止上传</button>
-                <input id="local-video-files" type="file" accept=".mp4,.mov,.m4v,.webm,video/mp4,video/quicktime,video/webm" multiple hidden />
                 <button class="secondary" id="fetch-game-media" hidden>获取原片 / 查看费用</button>
                 <button class="secondary" id="refresh-list">刷新本地结果</button
                 ><button class="primary" id="sync-game">同步抖音</button>
               </div>
             </div>
-            <p id="local-upload-status" class="small muted" role="status" aria-live="polite" hidden></p>
             <div id="game-sync-controls">
               <label class="auto-sync">
                 <input type="checkbox" id="auto-sync" />
@@ -417,8 +428,8 @@
         <button class="secondary" type="submit">保存授权并检查</button>
       </form>
       <div class="login-links">
-        <button id="readiness-check" class="secondary">刷新状态</button>
-        <button id="readiness-local" class="secondary">先使用本地素材</button>
+        <button id="readiness-check" class="primary">刷新状态</button>
+        <button id="readiness-local" class="primary">先使用本地素材</button>
         <button id="readiness-enter" class="primary" disabled>进入创作台</button>
       </div>
     </dialog>

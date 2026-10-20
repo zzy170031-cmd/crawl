@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
+import {mkdtempSync,realpathSync,rmSync} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {Readable} from 'node:stream';
+import {createLocalVideoStore} from '../app/local-videos.mjs';
+import {buildGameStudyLibrary} from '../app/game-study-library.mjs';
 import {prepareGameStudy,calculateComparisonMetrics,studyCoverage,validateGameStudyDraft,runGameStudy,GAME_STUDY_VERSION} from '../app/game-study.mjs';
 const hash=x=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex');
 const at='2026-10-20T00:00:00Z';
@@ -72,4 +78,95 @@ test('complete page range plus an extra duplicate [1,2,2] cannot close image cov
  const f=fixture(),first=f.packet.sources.find(s=>s.id==='I');first.coverage={page_index:1,page_count:2};
  for(const [id,index,sha]of [['I2',2,'c'],['I2duplicate',2,'d']]){const page={...structuredClone(first),id,coverage:{page_index:index,page_count:2},file:{path:'/public/'+id+'.png',sha256:sha.repeat(64)}};f.packet.sources.push(page);f.images.push(page.file);}
  const p=prepared(f),d=draft();validateGameStudyDraft(d,p);const coverage=studyCoverage(p,calculateComparisonMetrics(p),d);assert.equal(coverage.domains.video_and_image.status,'missing');assert.equal(coverage.status,'partial');assert.equal(coverage.image_pages.length,3);
+});
+
+
+function libraryFixture(source='local'){
+ const f=fixture(),sha='c'.repeat(64),id=source==='local'?'local_'+sha:'7695600881273670946';
+ const origin={provider:source==='local'?'local_upload':'redfox',kind:'video',game:f.packet.game,source_id:id,title:'actual source',source_url:source==='local'?null:'https://www.douyin.com/video/'+id,author:null,
+  collection_request_id:source==='local'?null:'query',collected_at:source==='local'?null:at,uploaded_at:source==='local'?at:null,
+  published_at:null,published_date:source==='local'?null:'2026-10-15',publication_date:source==='local'?null:'2026-10-15',like_count:source==='local'?null:0,comment_count:null,share_count:null,collect_count:null,duration_ms:60000};
+ const record={...origin,origins:[structuredClone(origin)],sha256:sha,library_id:'media_'+sha,availability:'available',classification:{label:'配置讲解',status:'reviewed',evidence_ids:['F']},relevance:'related'};
+ f.packet.sources.filter(s=>['F','A'].includes(s.id)).forEach(s=>s.source_id=id);f.packet.representative_samples=[{source_id:id,evidence_ids:['F','A']}];
+ delete f.packet.collection;f.packet.learning_source=source;f.packet.library={binding:{source_provider:'game_study_library',game:f.packet.game,library_id:'library_'+sha,library_fingerprint:sha,collection:source==='local'?null:{source_provider:'redfox',collection_request_id:'query',collection_fingerprint:'d'.repeat(64),collected_at:at,window:{start_date:'2026-10-12',end_date:'2026-10-18',update_policy:'T+1'}}},records:[record]};
+ return f;
+}
+
+test('local-only library uses one source in one Host call, no invented query/window/metrics and always partial',async()=>{
+ const f=libraryFixture(),h=host(),r=await runGameStudy(f.packet,{...f,host:h,auditDir:'/isolated/local'});
+ assert.equal(h.calls,1);assert.equal(r.version,'game-study-host-candidate-3');assert.equal(r.coverage.candidate_count,1);assert.equal(r.coverage.candidate_pool_complete,false);assert.equal(r.coverage.status,'partial');assert.equal(r.draft.accepted,false);assert.equal(r.coverage.domains.duration_interaction.status,'missing');assert.equal(r.comparisonMetrics.window,null);assert.equal(r.comparisonMetrics.collection_request_id,null);assert.equal(r.comparisonMetrics.learning_source,'local');assert.deepEqual(r.comparisonMetrics.groups,[]);assert.deepEqual(r.comparisonMetrics.excluded,[{source_id:f.packet.library.records[0].source_id,reason:'no_network_publication_window'}]);assert.equal(r.draft.interaction_observations.length,0);
+ const p=prepared(f);assert.equal(p.packet.collection,undefined);assert.equal(p.recordContext.window,null);assert.equal(p.packet.library.records[0].published_at,null);assert.equal(p.packet.library.records[0].like_count,null);assert.equal(p.bySource.get('F').source_id,p.packet.library.records[0].source_id);
+});
+
+test('network library preserves real query/window, verifies origins and permits small incomplete candidate pool',()=>{
+ const f=libraryFixture('network'),p=prepared(f),m=calculateComparisonMetrics(p),coverage=studyCoverage(p,m,draft());
+ assert.equal(p.packet.collection,undefined);assert.equal(m.collection_request_id,'query');assert.deepEqual(m.window,{start:'2026-10-12',end:'2026-10-18',timezone:'Asia/Shanghai'});assert.equal(m.groups[0].metrics.like_count.median,0);assert.equal(m.groups[0].metrics.share_count.median,null);assert.equal(coverage.status,'partial');assert.equal(coverage.candidate_count,1);assert.equal(coverage.ready,false);
+ const g=libraryFixture('network');g.packet.library.records[0].published_date=null;g.packet.library.records[0].publication_date=null;g.packet.library.records[0].origins[0].published_date=null;g.packet.library.records[0].origins[0].publication_date=null;assert.equal(calculateComparisonMetrics(prepared(g)).excluded[0].reason,'publication_date_unknown');
+});
+
+test('library rejects mixed source, forged local publication/heat, cross-game/batch and unbound frame or ASR',()=>{
+ const changes=[
+  f=>f.packet.collection=fixture().packet.collection,
+  f=>f.packet.learning_source='combined',
+  f=>f.packet.library.binding.game='other',
+  f=>f.packet.library.binding.collection={collection_request_id:'fake'},
+  f=>f.packet.library.records[0].provider='redfox',
+  f=>f.packet.library.records[0].game='other',
+  f=>f.packet.library.records[0].published_at=at,
+  f=>f.packet.library.records[0].publication_date='2026-10-20',
+  f=>f.packet.library.records[0].like_count=0,
+  f=>delete f.packet.library.records[0].share_count,
+  f=>f.packet.library.records[0].play_count=20,
+  f=>f.packet.library.records[0].origins[0].published_date='2026-10-20',
+  f=>f.packet.library.records[0].origins[0].game='other',
+  f=>f.packet.library.records[0].origins=[null],
+  f=>f.packet.sources.find(s=>s.id==='A').source_id='another_upload',
+  f=>f.packet.sources.find(s=>s.id==='A').game='other',
+  f=>f.packet.library.records[0].sha256='e'.repeat(64),
+ ];
+ for(const change of changes){const f=libraryFixture();change(f);assert.throws(()=>prepared(f),e=>typeof e.code==='string'&&e.code.startsWith('STUDY_'));}
+ for(const change of [f=>f.packet.learning_source='local',f=>f.packet.library.records[0].collection_request_id='another',f=>f.packet.library.records[0].origins[0].collection_request_id='another',f=>f.packet.library.records[0].origins[0].published_date='2026-10-21',f=>f.packet.library.records[0].source_id='local_'+'a'.repeat(64)]){const f=libraryFixture('network');change(f);assert.throws(()=>prepared(f));}
+});
+
+test('empty/over-limit library stops before Host, without replacing records or filling a quota',async()=>{
+ const f=libraryFixture(),h=host();f.packet.library.records=[];await assert.rejects(runGameStudy(f.packet,{...f,host:h}),{code:'STUDY_NO_SOURCES'});assert.equal(h.calls,0);
+ const g=libraryFixture();g.packet.library.records=Array.from({length:31},()=>structuredClone(g.packet.library.records[0]));await assert.rejects(runGameStudy(g.packet,{...g,host:h}),{code:'STUDY_LIBRARY_INVALID'});assert.equal(h.calls,0);
+});
+
+
+test('real local store list -> frozen library public DTO -> prepared dossier keeps exact same-source binding',async t=>{
+ const folder=realpathSync(mkdtempSync(join(tmpdir(),'study-library-contract-'))),store=createLocalVideoStore({folder,probe:async()=>({format:{format_name:'mov,mp4,m4a,3gp,3g2,mj2',duration:'2'},streams:[{codec_type:'video',codec_name:'h264',width:32,height:32}]})});
+ t.after(()=>{store.close();rmSync(folder,{recursive:true,force:true});});
+ const bytes=Buffer.concat([Buffer.from('000000186674797069736f6d0000000069736f6d6d703432','hex'),Buffer.from('controlled probe fixture')]);
+ const saved=await store.importStream({stream:Readable.from([bytes]),game:'山海策',filename:'原片.mp4',contentType:'video/mp4',declaredBytes:bytes.length});
+ const library=await buildGameStudyLibrary({game:'山海策',uploads:store.list('山海策'),openLocal:store.open});const f=libraryFixture();f.packet.library={binding:library.binding,records:library.records};
+ f.packet.sources.filter(s=>['F','A'].includes(s.id)).forEach(s=>s.source_id=saved.source_id);f.packet.representative_samples=[{source_id:saved.source_id,evidence_ids:['F','A']}];
+ const p=prepared(f);assert.equal(p.records.get(saved.source_id).sha256,createHash('sha256').update(bytes).digest('hex'));assert.equal(p.bySource.get('A').source_id,saved.source_id);assert.equal(calculateComparisonMetrics(p).groups.length,0);assert.equal(studyCoverage(p,calculateComparisonMetrics(p),draft()).status,'partial');assert.equal(p.packet.library.records[0].origins[0].collection_request_id,null);
+});
+
+
+test('private/full library objects and nested hidden media paths are rejected before Host, never silently projected into input',async()=>{
+ let calls=0;const noHost={async json(){calls++;throw Error('must not execute');}};
+ for(const mutate of [
+  f=>Object.assign(f.packet.library,{items:[{media:{path:'/private/original.mp4'}}],version:'game-study-library-1'}),
+  f=>f.packet.library.binding.path='/private/database.sqlite',
+  f=>f.packet.library.records[0].path='/private/video.mp4',
+  f=>f.packet.library.records[0].media={path:'/private/video.mp4'},
+  f=>f.packet.library.records[0].origins[0].path='/private/video.mp4',
+  f=>f.packet.library.records[0].title={path:'/private/video.mp4'},
+  f=>f.packet.library.records[0].classification.label={path:'/private/video.mp4'},
+  f=>f.packet.hidden={items:[{path:'/private/raw'}]},
+ ]){const f=libraryFixture();mutate(f);await assert.rejects(runGameStudy(f.packet,{...f,host:noHost}),{code:'STUDY_LIBRARY_PRIVATE_FIELDS'});}
+ assert.equal(calls,0);
+});
+
+test('nonfinite/non-JSON values fail before clone instead of becoming legal unknown nulls; old JSON packets still work',async()=>{
+ let calls=0;const noHost={async json(){calls++;throw Error('must not execute');}};
+ for(const value of [NaN,Infinity,-Infinity,undefined,()=>0,1n,new Date(at)]){
+  const f=libraryFixture();f.packet.library.records[0].like_count=value;
+  await assert.rejects(runGameStudy(f.packet,{...f,host:noHost}),{code:'STUDY_NON_JSON_INPUT'});
+ }
+ const old=fixture();old.packet.collection.records[0].share_count=NaN;await assert.rejects(runGameStudy(old.packet,{...old,host:noHost}),{code:'STUDY_NON_JSON_INPUT'});
+ const cyclic=libraryFixture();cyclic.packet.library.records[0].cycle=cyclic.packet;await assert.rejects(runGameStudy(cyclic.packet,{...cyclic,host:noHost}),{code:'STUDY_NON_JSON_INPUT'});
+ assert.equal(calls,0);assert.equal(prepared(fixture()).records.size,20);assert.equal(prepared(libraryFixture()).recordContext.records[0].like_count,null);
 });
