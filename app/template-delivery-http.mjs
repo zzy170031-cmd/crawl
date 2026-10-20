@@ -11,6 +11,7 @@ const messages={
  TEMPLATE_DELIVERY_NOT_FOUND:[404,'模板交付记录不存在。'],TEMPLATE_DELIVERY_TARGET_CHANGED:[409,'目标文档已变化，请重新核对。'],
  TEMPLATE_DELIVERY_PLAN_CHANGED:[409,'模板计划版本不匹配，未写入。'],TEMPLATE_DELIVERY_CANDIDATE_INVALID:[409,'固定创作候选不可用或存在关键缺口。'],
  TEMPLATE_DELIVERY_BASELINE_CHANGED:[409,'模板表或已有内容变化，已停止覆盖。'],TEMPLATE_DELIVERY_TEMPLATE_HEADERS:[409,'模板表头不匹配，未覆盖已有内容。'],
+ TEMPLATE_DELIVERY_HEADER_UPGRADE_REQUIRED:[409,'目标子表仍为四列。请先明确新增“模拟成片内容（可直接使用）”表头，再重新核对；本次未改表或写入。'],
  TEMPLATE_DELIVERY_TEMPLATE_AMBIGUOUS:[409,'发现同名模板表，未选择或覆盖。'],TEMPLATE_DELIVERY_SHEET_CAPACITY:[409,'目标表可用区域不足，未覆盖或自动扩表。'],
  TEMPLATE_DELIVERY_BUSY:[409,'该记录正在执行，未重复操作。'],TEMPLATE_DELIVERY_TARGET_BUSY:[409,'此目标仍有执行中或待核对交付，未开始另一笔写入。'],
  TEMPLATE_DELIVERY_UNKNOWN:[409,'上次结果不明确，只能核对，未重复写入。'],

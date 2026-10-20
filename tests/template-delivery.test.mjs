@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {Tasks,hash} from '../app/tasks.mjs';
+import {CREATIVE_PRODUCTION_HEADER} from '../app/creative-candidate.mjs';
 import {CREATIVE_TASK_PIPELINE} from '../app/creative-task.mjs';
 import {createTemplateDelivery,TEMPLATE_HEADERS,projectTemplateContent} from '../app/template-delivery.mjs';
 const tick=()=>new Promise(r=>setTimeout(r,5));
@@ -40,7 +41,7 @@ test('prepare is read-only, exact A/source/overview routes preserve draft and ol
  const order=writes(f).filter(c=>c.name==='sheet_set_range_value').map(c=>c.args.sheet_id);assert.equal(order.at(-1),'sheet-overview');const count=f.calls.length;await s.approve({plan_id:p.id,plan_sha256:p.plan_sha256});await s.close();const reopened=f.make();assert.equal((await reopened.prepare(f.q)).id,p.id);assert.equal(reopened.read(p.id).state,'verified');assert.equal(f.calls.length,count);
 });
 test('missing templates only create after approval; mode B routes correctly and real metadata independent of IDs',async t=>{
- const f=fixture(t,{missing:true,mode:'B'}),s=f.make(),p=await s.prepare(f.q);assert.equal(p.templates.filter(x=>x.create).length,4);assert.equal(writes(f).length,0);await s.approve({plan_id:p.id,plan_sha256:p.plan_sha256});await s.idle();assert.equal(s.read(p.id).state,'verified');assert.equal(f.calls.filter(c=>c.name==='sheet_add_sheet').length,4);assert(f.sheets.find(x=>x.sheet_name===TEMPLATE_HEADERS.B.name).cells.length>4);assert.equal(f.sheets.find(x=>x.sheet_name===TEMPLATE_HEADERS.A.name).cells.length,4);
+ const f=fixture(t,{missing:true,mode:'B'}),s=f.make(),p=await s.prepare(f.q);assert.equal(p.templates.filter(x=>x.create).length,4);assert.equal(writes(f).length,0);await s.approve({plan_id:p.id,plan_sha256:p.plan_sha256});await s.idle();assert.equal(s.read(p.id).state,'verified');assert.equal(f.calls.filter(c=>c.name==='sheet_add_sheet').length,4);assert(f.sheets.find(x=>x.sheet_name===TEMPLATE_HEADERS.B.name).cells.length>4);assert.equal(f.sheets.find(x=>x.sheet_name===TEMPLATE_HEADERS.A.name).cells.length,5);
 });
 test('placeholder exact full-row CAS only; otherwise append after actual last occupied row',async t=>{
  const f=fixture(t,{placeholder:true}),s=f.make(),p=await s.prepare(f.q);assert.equal(p.routes.at(-1).start_row,1);assert.equal(p.routes.at(-1).replace,true);f.sheets.find(x=>x.sheet_id==='sheet-overview').cells.find(c=>c.row===1&&c.col===6).string_value='用户修改';await assert.rejects(s.approve({plan_id:p.id,plan_sha256:p.plan_sha256}),{code:'TEMPLATE_DELIVERY_BASELINE_CHANGED'});assert.equal(writes(f).length,0);
@@ -138,4 +139,35 @@ test('pre-projection frozen prepared plan survives restart and explicit prepare 
  old.layout_sha256=hash(old.routes);db.checkpoint(key,old);db.db.prepare('UPDATE tasks SET payload=? WHERE id=?').run(JSON.stringify({version:old.version,plan_sha256:hash(old)}),prepared.id);db.close();
  const two=f.make(),calls=f.calls.length,reread=two.read(prepared.id);assert.equal(reread.plan_sha256,hash(old));assert.deepEqual((await two.prepare(f.q)).routes,old.routes);assert.equal(f.calls.length,calls);
  await two.approve({plan_id:prepared.id,plan_sha256:hash(old)});await two.idle();assert.equal(two.read(prepared.id).state,'verified');assert.deepEqual(two.read(prepared.id).receipt.routes[0].rows,old.routes[0].rows);
+});
+
+function fiveColumnCandidate(f){
+ const r=f.candidate.result;r.draft.rows=r.draft.rows.map((row,i)=>[...row,i===0?CREATIVE_PRODUCTION_HEADER:row[0].startsWith('正文')?'口播／对白：这一次，由我留下。\n屏幕逐字文案：等你回来。\n成片画面：两人将座位换到同一侧。':'']);
+ r.draft_sha256=hash(r.draft);delete r.result_version;r.result_version=hash(r);Object.assign(f.q,{result_version:r.result_version,draft_sha256:r.draft_sha256});
+}
+function fifthHeader(f,role){f.sheets.find(s=>s.sheet_id==='sheet-'+role).cells.push({row:0,col:4,string_value:CREATIVE_PRODUCTION_HEADER,value_type:'STRING'});}
+test('new five-column drafts require explicit preexisting header upgrade; prepare is read-only and never silently writes E1',async t=>{
+ for(const mode of ['A','B']){
+  const f=fixture(t,{mode});fiveColumnCandidate(f);const service=f.make();await assert.rejects(service.prepare(f.q),{code:'TEMPLATE_DELIVERY_HEADER_UPGRADE_REQUIRED'});assert.equal(writes(f).length,0);
+  fifthHeader(f,mode);const sheet=f.sheets.find(s=>s.sheet_id==='sheet-'+mode);sheet.cells.push({row:2,col:4,string_value:'用户原有E列内容',value_type:'STRING'});const baseline=structuredClone(sheet.cells);
+  const prepared=await service.prepare(f.q);assert.equal(prepared.routes[0].start_row,3);assert.equal(prepared.templates.find(s=>s.role===mode).header.length,5);assert.equal(writes(f).length,0);
+  await service.approve({plan_id:prepared.id,plan_sha256:prepared.plan_sha256});await service.idle();assert.equal(service.read(prepared.id).state,'verified');
+  assert.deepEqual(sheet.cells.filter(c=>c.row<3),baseline);assert(f.exports.find(e=>e.name===TEMPLATE_HEADERS[mode].name).region.rows.every(r=>r.length===5));
+  assert(writes(f).filter(c=>c.name==='sheet_set_range_value'&&c.args.sheet_id===sheet.sheet_id).every(c=>c.args.values.every(v=>v.row>=3)));
+ }
+});
+test('old four-column candidate appends A:D to a five-column main table preserving all existing E and frozen draft bytes',async t=>{
+ const f=fixture(t);fifthHeader(f,'A');fifthHeader(f,'B');const sheet=f.sheets.find(s=>s.sheet_id==='sheet-A');sheet.cells.push({row:1,col:4,string_value:'此前成片内容',value_type:'STRING'});
+ const original=structuredClone(f.candidate),service=f.make(),prepared=await service.prepare(f.q);assert.equal(prepared.routes[0].start_row,2);assert(prepared.routes[0].rows.every(r=>r.length===4));await service.approve({plan_id:prepared.id,plan_sha256:prepared.plan_sha256});await service.idle();assert.equal(service.read(prepared.id).state,'verified');assert.deepEqual(f.candidate,original);
+ assert.deepEqual(sheet.cells.filter(c=>c.col===4).map(c=>c.string_value),[CREATIVE_PRODUCTION_HEADER,'此前成片内容']);assert(writes(f).filter(c=>c.name==='sheet_set_range_value'&&c.args.sheet_id==='sheet-A').every(c=>c.args.values.every(v=>v.col<4)));
+});
+test('new empty templates freeze five-column headers while preexisting legacy frozen plans still create four without migration',async t=>{
+ const f=fixture(t,{missing:true});fiveColumnCandidate(f);const service=f.make(),prepared=await service.prepare(f.q);await service.approve({plan_id:prepared.id,plan_sha256:prepared.plan_sha256});await service.idle();assert.equal(service.read(prepared.id).state,'verified');
+ for(const role of ['A','B'])assert.equal(f.sheets.find(s=>s.sheet_name===TEMPLATE_HEADERS[role].name).cells.find(c=>c.row===0&&c.col===4).string_value,CREATIVE_PRODUCTION_HEADER);
+ const old=fixture(t,{missing:true}),one=old.make(),p=await one.prepare(old.q);await one.close();const db=new Tasks(join(old.root,'template-deliveries')),key=`template:${p.id}:plan`,frozen=db.checkpoint(key);delete frozen.template_headers;delete frozen.presentation_version;db.checkpoint(key,frozen);db.db.prepare('UPDATE tasks SET payload=? WHERE id=?').run(JSON.stringify({version:frozen.version,plan_sha256:hash(frozen)}),p.id);db.close();
+ const two=old.make();assert.equal(two.read(p.id).templates.find(s=>s.role==='A').header.length,4);await two.approve({plan_id:p.id,plan_sha256:hash(frozen)});await two.idle();assert.equal(two.read(p.id).state,'verified');for(const role of ['A','B'])assert(!old.sheets.find(s=>s.sheet_name===TEMPLATE_HEADERS[role].name).cells.some(c=>c.row===0&&c.col===4));
+});
+test('fifth-header mismatch or fifth-column drift cannot pass a frozen-plan approval or reconciliation',async t=>{
+ const f=fixture(t);fiveColumnCandidate(f);fifthHeader(f,'A');const service=f.make(),p=await service.prepare(f.q),sheet=f.sheets.find(s=>s.sheet_id==='sheet-A');sheet.cells.find(c=>c.row===0&&c.col===4).string_value='other';await assert.rejects(service.approve({plan_id:p.id,plan_sha256:p.plan_sha256}),{code:'TEMPLATE_DELIVERY_TEMPLATE_HEADERS'});assert.equal(writes(f).length,0);
+ sheet.cells.find(c=>c.row===0&&c.col===4).string_value=CREATIVE_PRODUCTION_HEADER;await service.approve({plan_id:p.id,plan_sha256:p.plan_sha256});await service.idle();const e=sheet.cells.find(c=>c.row>0&&c.col===4&&c.string_value);e.string_value='changed final content';const count=writes(f).length,checked=await service.reconcile(p.id);assert.equal(checked.receipt.reconciliations.at(-1).content_verified,false);assert.equal(checked.receipt.reconciliations.at(-1).error,'TEMPLATE_DELIVERY_CONTENT_MISMATCH');assert.equal(writes(f).length,count);
 });

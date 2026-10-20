@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {writeFileSync,mkdirSync} from 'node:fs';
 import {join} from 'node:path';
+import {planSchema,validatePlan} from '../app/contracts.mjs';
 import {hash} from '../app/tasks.mjs';
-import {prepareCreativeCandidate,runCreativeCandidate,validateCreativeCandidate,CREATIVE_CANDIDATE_VERSION} from '../app/creative-candidate.mjs';
+import {prepareCreativeCandidate,runCreativeCandidate,validateCreativeCandidate,CREATIVE_CANDIDATE_VERSION,CREATIVE_PRODUCTION_CONTENT_VERSION,CREATIVE_PRODUCTION_HEADER,creativeCandidateSchema} from '../app/creative-candidate.mjs';
 import {fixture,output,fakeHost,PNG} from './helpers/creative-fixture.mjs';
 
 test('single selected cross-game source + fixed partial profile yields one complete Host candidate, never ready or delivery',async t=>{
@@ -56,4 +57,24 @@ test('selected-video supplemental frames are attached with closed IDs and indepe
  const o=output();o.source_reading[0].evidence_ids=['selected:F8'];validateCreativeCandidate(o,p);
  frames[0].time=9;const host=fakeHost();await assert.rejects(runCreativeCandidate(f.input,{host,dataRoot:f.root}),{code:'CREATIVE_MEDIA_SUPPLEMENT'});assert.equal(host.calls.length,0);
  frames[0].time=1.25;writeFileSync(frames[1].path,'changed supplemental frame');await assert.rejects(runCreativeCandidate(f.input,{host,dataRoot:f.root}),{code:'STUDY_EVIDENCE_HASH'});assert.equal(host.calls.length,0);
+});
+
+test('candidate-only production schema leaves legacy shots valid and projects exact per-shot/script content into column E',async t=>{
+ const f=fixture(t),value=output();value.plan.ideas[0].shots.push({...structuredClone(value.plan.ideas[0].shots[0]),position:'5–10秒',production_content:{spoken_words:'无口播',screen_words:'我在这里等你。',visual_content:'原创演绎：灯熄灭，只留下两把并排的空椅子。'}});
+ const host=fakeHost(value),result=await runCreativeCandidate(f.input,{host,dataRoot:f.root});
+ assert.equal(planSchema.properties.ideas.items.properties.shots.items.properties.production_content,undefined);
+ assert(creativeCandidateSchema.properties.plan.properties.ideas.items.properties.shots.items.required.includes('production_content'));
+ const legacy=structuredClone(value.plan);for(const idea of legacy.ideas)for(const shot of idea.shots)delete shot.production_content;
+ validatePlan(legacy,host.calls[0].input.evidence,f.input.game);
+ assert.equal(host.calls[0].input.production_content_version,CREATIVE_PRODUCTION_CONTENT_VERSION);assert.equal(result.receipt.production_content_version,CREATIVE_PRODUCTION_CONTENT_VERSION);assert.equal(result.draft.rows[0][4],CREATIVE_PRODUCTION_HEADER);assert(result.draft.rows.every(r=>r.length===5));
+ let cursor=2;for(const idea of value.plan.ideas){assert.equal(result.draft.rows[cursor+2][4],idea.script);cursor+=3;for(const shot of idea.shots){const c=shot.production_content;assert.equal(result.draft.rows[cursor++][4],`镜号／时间或页序：${shot.position}\n口播／对白：${c.spoken_words}\n屏幕逐字文案：${c.screen_words}\n成片画面：${c.visual_content}`);}cursor+=1+idea.tiers.length;}
+ for(const row of result.draft.rows.filter(r=>['读取范围','重点拆解','游戏对照与结合','素材清单','游戏资料','热点原片'].includes(r[0])))assert.equal(row[4],'');
+ for(const link of result.draft.links)assert.equal(result.draft.rows[link.row][link.col],link.url);
+});
+test('new generation cannot silently accept missing, wrong-type or empty production fields; text semantics remain explicitly unapproved',async t=>{
+ const f=fixture(t),p=await prepareCreativeCandidate(f.input,{dataRoot:f.root});
+ for(const mutate of [s=>delete s.production_content,s=>s.production_content.spoken_words=[],s=>s.production_content.visual_content=' ',s=>s.production_content.extra='unexpected']){const value=output();mutate(value.plan.ideas[0].shots[0]);assert.throws(()=>validateCreativeCandidate(value,p));}
+ // No keyword regex pretends to certify that well-typed prose is useful final content.
+ const value=output();value.plan.ideas[0].shots[0].production_content.visual_content='加一张卡';
+ const result=await runCreativeCandidate(f.input,{host:fakeHost(value),dataRoot:f.root});assert.equal(result.accepted,false);assert.equal(result.receipt.semantic_acceptance,false);
 });
