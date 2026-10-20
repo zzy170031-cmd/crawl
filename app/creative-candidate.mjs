@@ -8,6 +8,7 @@ import {composeRows} from './delivery.mjs';
 import {HOST_LIMITS,validateHostOutput} from './host-assistant.mjs';
 import {STUDY_MEDIA_VERSION,studyFrameTimes} from './study-media.mjs';
 import {STUDY_EVIDENCE_VERSION,evidenceRoot,verifyEvidenceFile,readEvidenceJSON} from './study-evidence-reader.mjs';
+import {validLocalCreativeSource,localCreativeBinding} from './creative-local-source.mjs';
 export const CREATIVE_CANDIDATE_VERSION='host-creative-candidate-3';
 const fail=code=>{throw Object.assign(Error(code),{code});};
 const obj=x=>x!==null&&typeof x==='object'&&!Array.isArray(x),text=x=>typeof x==='string'&&x.trim().length>0,SHA=/^[a-f0-9]{64}$/;
@@ -34,13 +35,15 @@ function sourceDTO(s,id,role,imageIndex){
 export async function prepareCreativeCandidate(original,{dataRoot,signal}={}){
  const captured=structuredClone(original);signal?.throwIfAborted();const {study,selected,mode,format}=captured||{},game=normalizeLocalGame(captured?.game),root=await evidenceRoot(dataRoot);
  if(!['A','B'].includes(mode)||!['video','image'].includes(format))fail('CREATIVE_REQUEST_INVALID');
- if(study?.version!==STUDY_EVIDENCE_VERSION||study.game!==game||study.profile?.game!==game||study.profile.learning_source!=='network'||study.profile.accepted!==false||study.profile.ready!==false||study.binding?.profile_version!==study.profile.version||study.binding?.task_id!==study.profile.task_id||study.binding?.profile_sha256!==hash(study.profile)||study.packet?.game!==game||hash(study.packet)!==study.binding?.packet_sha256||!Array.isArray(study.packet.sources)||!Array.isArray(study.images)||!Array.isArray(study.files))fail('CREATIVE_STUDY_BINDING');
+ if(study?.version!==STUDY_EVIDENCE_VERSION||study.game!==game||study.profile?.game!==game||!['network','local'].includes(study.profile.learning_source)||study.profile.accepted!==false||study.profile.ready!==false||study.binding?.profile_version!==study.profile.version||study.binding?.task_id!==study.profile.task_id||study.binding?.profile_sha256!==hash(study.profile)||study.packet?.game!==game||hash(study.packet)!==study.binding?.packet_sha256||!Array.isArray(study.packet.sources)||!Array.isArray(study.images)||!Array.isArray(study.files))fail('CREATIVE_STUDY_BINDING');
  if(!/^[a-f0-9-]{36}$/.test(study.binding.task_id||'')||!SHA.test(study.binding.request_file_sha256||'')||!SHA.test(study.binding.receipt_file_sha256||''))fail('CREATIVE_STUDY_BINDING');
  const studyAudit=join(root,'game-study-tasks','audits',study.binding.task_id);
  await verifyEvidenceFile(root,{path:join(studyAudit,'request.json'),sha256:study.binding.request_file_sha256},{signal,maxBytes:2*1024*1024});
  await verifyEvidenceFile(root,{path:join(studyAudit,'receipt.json'),sha256:study.binding.receipt_file_sha256},{signal,maxBytes:2*1024*1024});
  const row=selected?.row,media=selected?.media,p=selected?.prepared,c=selected?.collection;
- if(row?.provider!=='redfox'||row.kind!=='video'||!/^\d{10,25}$/.test(row.source_id||'')||row.source_url!==`https://www.douyin.com/video/${row.source_id}`||!text(c?.request_id)||!SHA.test(c?.fingerprint||'')||row.collection_request_id!==c.request_id||!SHA.test(media?.sha256||'')||!Number.isSafeInteger(media?.size)||p?.source_sha256!==media.sha256||p.version!==STUDY_MEDIA_VERSION||!Array.isArray(p.frames)||p.frames.length!==3)fail('CREATIVE_SELECTED_BINDING');
+ const local=row?.provider==='local_upload';
+ const sourceValid=local?validLocalCreativeSource(selected,game,mode):row?.provider==='redfox'&&row.kind==='video'&&/^\d{10,25}$/.test(row.source_id||'')&&row.source_url===`https://www.douyin.com/video/${row.source_id}`&&text(c?.request_id)&&SHA.test(c?.fingerprint||'')&&row.collection_request_id===c.request_id;
+ if(!sourceValid||!SHA.test(media?.sha256||'')||!Number.isSafeInteger(media?.size)||p?.source_sha256!==media.sha256||p.version!==STUDY_MEDIA_VERSION||!Array.isArray(p.frames)||p.frames.length!==3)fail('CREATIVE_SELECTED_BINDING');
  const boundOriginal=await verifyEvidenceFile(root,media,{signal,maxBytes:HOST_LIMITS.source});if(boundOriginal.size!==media.size)fail('CREATIVE_SELECTED_BINDING');
  const manifestFile=await readEvidenceJSON(root,p.manifest_path,{signal}),manifest=manifestFile.value,folder=dirname(p.manifest_path);
  if(manifest?.version!==STUDY_MEDIA_VERSION||manifest.source_sha256!==media.sha256||manifest.source_size!==media.size||manifest.duration!==p.duration||!Number.isFinite(p.duration)||p.duration<1||p.duration>900||typeof p.has_audio!=='boolean'||manifest.has_audio!==p.has_audio||!Array.isArray(manifest.frames)||manifest.frames.length!==3||!Array.isArray(manifest.times)||manifest.times.length!==3)fail('CREATIVE_MEDIA_MANIFEST');
@@ -91,9 +94,12 @@ export async function prepareCreativeCandidate(original,{dataRoot,signal}={}){
  const uniqueFiles=[...new Map(files.map(f=>[f.path+'\0'+f.sha256,f])).values()];
  if(images.length>HOST_LIMITS.maxImages||uniqueFiles.length>HOST_LIMITS.maxSources)fail('CREATIVE_ATTACHMENT_LIMIT');
  const coverage={frames:[...p.frames,...(p.supplemental?.frames||[])].map(f=>f.time).sort((a,b)=>a-b),duration:p.duration,has_audio:p.has_audio,speech:p.has_audio?(p.transcript.segments.length?'automatic_full_track_transcript_unverified':'no_speech_recognized_not_silence'):'no_audio_track',continuous_video_read:false,music_sound_effects_read:false,timestamp_method:'requested_seek_not_pts_verified',omitted_game_image_ids:omittedGame};
- const input={version:CREATIVE_CANDIDATE_VERSION,game,mode,format,study_binding:study.binding,profile_summary:study.profile.draft,profile_coverage:study.profile.coverage,profile_context_only:true,source:{provider:row.provider,source_id:row.source_id,collection_request_id:c.request_id,collection_fingerprint:c.fingerprint,title:row.title??'',url:row.source_url},coverage,evidence};
+ const sourceBinding=local?localCreativeBinding(selected):{collection_request_id:c.request_id,collection_fingerprint:c.fingerprint};
+ const source={provider:row.provider,source_id:row.source_id,...sourceBinding,title:row.title??'',url:row.source_url};
+ if(local)Object.assign(source,{uploaded_at:row.uploaded_at,published_at:null,like_count:null,comment_count:null,share_count:null,collect_count:null});
+ const input={version:CREATIVE_CANDIDATE_VERSION,game,mode,format,study_binding:study.binding,profile_summary:study.profile.draft,profile_coverage:study.profile.coverage,profile_context_only:true,source,coverage,evidence};
  if(Buffer.byteLength(JSON.stringify(input)+CREATIVE_CANDIDATE_PROMPT+JSON.stringify(creativeCandidateSchema))+1024>HOST_LIMITS.input)fail('CREATIVE_INPUT_LIMIT');
- signal?.throwIfAborted();return {input,evidence,images,files:uniqueFiles,root,coverage,captured,binding:{game,mode,format,profile_version:study.binding.profile_version,study_task_id:study.binding.task_id,collection_request_id:c.request_id,collection_fingerprint:c.fingerprint,source_id:row.source_id,source_sha256:media.sha256,input_sha256:hash(input),attachment_sha256:hash({images,files:uniqueFiles})}};
+ signal?.throwIfAborted();return {input,evidence,images,files:uniqueFiles,root,coverage,captured,binding:{game,mode,format,profile_version:study.binding.profile_version,study_task_id:study.binding.task_id,...sourceBinding,source_id:row.source_id,source_sha256:media.sha256,input_sha256:hash(input),attachment_sha256:hash({images,files:uniqueFiles})}};
 }
 function refs(ids,byId,role){if(!Array.isArray(ids)||!ids.length||ids.some(id=>!byId.has(id)||role&&byId.get(id).role!==role))fail('CREATIVE_REFERENCE_INVALID');}
 export function validateCreativeCandidate(value,prepared){
@@ -118,6 +124,23 @@ export function validateCreativeCandidate(value,prepared){
  }
  return value;
 }
+function sourceNotes(p,source){
+ const records=p.captured.study.packet.library?.records||[],notes=[];
+ const titleFor=(id,fallback)=>{const title=records.find(r=>r.source_id===id)?.title;return text(title)?title:fallback;};
+ notes.push({kind:source.provider==='local_upload'?'local-video':'video',selected:true,source_id:source.source_id,title:source.title||'选题视频',url:source.url??null,frames:p.coverage.frames,has_audio:p.coverage.has_audio});
+ const grouped=new Map();
+ for(const e of p.evidence.filter(e=>e.role==='game')){
+  const local=/^local_[a-f0-9]{64}$/.test(e.source_id??'')&&!e.url;
+  if(!local&&!e.url)continue;
+  const kind=local?'local-video':['video-frame','raw-asr'].includes(e.kind)?'video':['image-page','competitor-content'].includes(e.kind)?'image':'web',key=kind+':'+(e.url||e.source_id);
+  let note=grouped.get(key);if(!note){note={kind,selected:false,source_id:e.source_id??null,title:titleFor(e.source_id,kind==='web'?`游戏参考资料 ${grouped.size+1}`:`游戏参考素材 ${grouped.size+1}`),url:e.url||null,frames:[],has_audio:null};grouped.set(key,note);}
+  if(e.kind==='video-frame'&&Number.isFinite(e.coverage?.time))note.frames.push(e.coverage.time);
+  if(e.coverage?.audio_state==='no_audio_stream')note.has_audio=false;
+  if(e.kind==='raw-asr')note.has_audio=true;
+ }
+ for(const note of grouped.values()){note.frames=[...new Set(note.frames)].sort((a,b)=>a-b);notes.push(note);}
+ return notes;
+}
 export async function runCreativeCandidate(input,{host,dataRoot,auditDir,signal}={}){
  if(typeof host?.json!=='function')fail('CREATIVE_HOST_REQUIRED');const p=await prepareCreativeCandidate(input,{dataRoot,signal});
  const response=await host.json(CREATIVE_CANDIDATE_PROMPT,p.input,creativeCandidateSchema,{images:p.images,sources:p.files,auditDir,signal});signal?.throwIfAborted();
@@ -127,11 +150,18 @@ export async function runCreativeCandidate(input,{host,dataRoot,auditDir,signal}
  const after=await prepareCreativeCandidate(p.captured,{dataRoot,signal});if(hash(after.binding)!==hash(p.binding))fail('CREATIVE_SOURCE_CHANGED');
  const value=validateCreativeCandidate(response.value,p),blocked=['insufficient','unsuitable'].includes(value.plan.fit)||value.plan.blocking_gaps.length>0;
  const reading=value.source_reading.map(x=>({...x,locations:x.evidence_ids.map(id=>({id,coverage:p.evidence.find(e=>e.id===id).coverage}))}));
- const source=p.input.source,linkEvidence=[{id:'selected-original',kind:'video',role:'hotspot',url:source.url,title:source.title,read_at:p.evidence[0].read_at,coverage:p.coverage,analysis:{observations:reading.map(x=>({time:x.locations[0].coverage.time??x.locations[0].coverage.start??0,text:x.text}))}},...p.evidence.filter(e=>e.role==='game'&&e.url).map(e=>({...e,kind:'web',title:e.original_id}))];
+ const source=p.input.source,local=source.provider==='local_upload',linkEvidence=[{id:'selected-original',kind:local?'local-video':'video',role:'hotspot',url:source.url??'',title:source.title,read_at:p.evidence[0].read_at,coverage:p.coverage,analysis:{observations:reading.map(x=>({time:x.locations[0].coverage.time??x.locations[0].coverage.start??0,text:x.text}))}},...p.evidence.filter(e=>e.role==='game'&&e.url).map(e=>({...e,kind:'web',title:e.original_id}))];
  const draft=composeRows({payload:{mode:p.input.mode,format:p.input.format}},value.plan,linkEvidence);
+ draft.source_notes=sourceNotes(p,source);
+ for(const note of draft.source_notes.filter(n=>n.kind==='local-video'))
+  draft.rows.push([note.selected?'本地选题原片':'本地游戏参考',note.title,'用户上传的本地视频','没有公开链接；发布时间和互动数据未知。']);
  // Append local-only structured sections; composeRows link coordinates stay intact.
  draft.rows.push(['读取范围',JSON.stringify(p.coverage),'候选档案，非完整视听核验','']);
  for(const x of reading)draft.rows.push(['重点拆解',x.text,x.role_in_structure,x.limitation]);
- for(const x of value.game_bridge)draft.rows.push(['游戏对照与结合',x.proposed_action,x.game_references.map(r=>r.quote||r.id).join('\n'),[...x.conditions,x.non_applicable].join('\n')]);
+ for(const x of value.game_bridge)draft.rows.push(['游戏对照与结合',x.proposed_action,x.game_references.map(r=>{
+  if(r.quote)return r.quote;
+  const e=p.evidence.find(e=>e.id===r.id),note=draft.source_notes.find(n=>!n.selected&&n.source_id===e?.source_id);
+  return `${note?.title||'游戏参考画面'}${Number.isFinite(e?.coverage?.time)?`（约${e.coverage.time}秒）`:''}`;
+ }).join('\n'),[...x.conditions,x.non_applicable].join('\n')]);
  return {version:CREATIVE_CANDIDATE_VERSION,status:blocked?'needs_input':'needs_review',accepted:false,ready:false,delivery_enabled:false,binding:p.binding,coverage:p.coverage,source_reading:reading,game_bridge:value.game_bridge,plan:value.plan,draft,draft_sha256:hash(draft),receipt:{...r,creative_version:CREATIVE_CANDIDATE_VERSION,input_binding:p.binding,semantic_acceptance:false},boundary:'One Host candidate, sparse frames and automatic speech; not full viewing, factual certification, independent quality acceptance or Tencent delivery.'};
 }

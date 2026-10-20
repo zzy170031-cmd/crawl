@@ -4,14 +4,24 @@ import {normalizeLocalGame} from './local-videos.mjs';
 import {SideBridge} from './side-bridge.mjs';
 import {replayRedfoxGameResult} from './redfox-game-source.mjs';
 import {replayRedfoxHotspotResult} from './redfox-hotspot-source.mjs';
+import {LOCAL_CREATIVE_ID,validLocalCreativeSource} from './creative-local-source.mjs';
 
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const fail=()=>{throw Object.assign(Error('CREATIVE_SOURCE_REQUIRED'),{code:'CREATIVE_SOURCE_REQUIRED'});};
 
-export function createCreativeSourceReader({bridge}={}){
+export function createCreativeSourceReader({bridge,localVideos}={}){
  if(typeof bridge?.get!=='function')fail();
  return {read(value){
   try{
+   if(value?.provider==='local_upload'){
+    if(Object.keys(value).sort().join(',')!=='game,mode,provider,source_id'||value.mode!=='A'||!LOCAL_CREATIVE_ID.test(value.source_id||'')||typeof localVideos?.list!=='function'||typeof localVideos?.open!=='function')fail();
+    const game=normalizeLocalGame(value.game),rows=localVideos.list(game).filter(r=>r.source_id===value.source_id);
+    if(rows.length!==1)fail();
+    const row=structuredClone(rows[0]),opened=localVideos.open(value.source_id);
+    const selected={row,origin:{provider:'local_upload',fingerprint:hash(row)},media:{path:opened.path,sha256:opened.sha256,size:opened.size}};
+    if(opened.source_id!==value.source_id||!validLocalCreativeSource(selected,game,'A'))fail();
+    return selected;
+   }
    if(!value||Array.isArray(value)||Object.keys(value).sort().join(',')!=='game,mode,request_id,source_id')fail();
    const {mode,request_id,source_id}=value,game=normalizeLocalGame(value.game);
    if(!['A','B'].includes(mode)||typeof request_id!=='string'||!UUID.test(request_id)||typeof source_id!=='string'||!/^\d{10,25}$/.test(source_id))fail();

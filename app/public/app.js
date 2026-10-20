@@ -13,6 +13,7 @@ let token = "",
   hotspotView = "board";
 let records = [],
   recordCollection = null,
+  localLibrarySnapshot = null,
   tasks = [],
   bridge = null,
   readiness = null,
@@ -468,12 +469,12 @@ function renderComposer() {
   if (rows.some((row) => rowKey(row) === chosen))
     $("draft-source").value = chosen;
   const candidate = qualityCapabilities?.creative_candidate?.enabled && qualityCapabilities?.creative_candidate?.configured;
-  const fixedStudy = currentProfile?.game===game() && currentProfile?.learning_source==="network" && currentProfile?.task_id && currentProfile?.version;
+  const fixedStudy = currentProfile?.game===game() && ["network","local"].includes(currentProfile?.learning_source) && currentProfile?.task_id && currentProfile?.version;
   $("create-draft").disabled = !(candidate && fixedStudy || qualityCapabilities?.creation?.enabled) || !game() || !$("draft-source").value;
   $("composer-help").textContent = !game()
     ? "请先到游戏广场确定目标游戏。"
     : candidate
-      ? fixedStudy ? `${game()} · 以固定游戏认知和所选原片生成创作草稿；不追加收费搜索，审阅后另行交付。` : `${game()} · 请先在游戏广场完成联网学习，保留认知版本后再创作。`
+      ? fixedStudy ? `${game()} · 以固定游戏认知和所选原片生成创作草稿；不追加收费搜索，审阅后另行交付。` : `${game()} · 请先在游戏广场完成所选来源的学习，保留认知版本后再创作。`
     : qualityCapabilities?.creative_candidate?.enabled && !qualityCapabilities?.creative_candidate?.configured
       ? "尚未配置可用的宿主助手执行器，请检查连接与安装配置。"
     : !qualityCapabilities?.creation?.enabled
@@ -558,6 +559,8 @@ async function loadRecords() {
       const shownOnline = onlineRows.map(row=>linked.has(row.source_id) ? {...row,local_upload:linked.get(row.source_id)} : row);
       const displayed = new Set(onlineRows.map(row=>row.source_id));
       result = {...result,records:[...shownOnline,...localRows.filter(row=>!(row.matching_online_ids||[]).some(id=>displayed.has(id)))]};
+      // Count the complete per-game upload library, not the filtered/merged cards.
+      result.local_library_snapshot = {game:target,count:local.status==="fulfilled"&&Array.isArray(local.value.records)?allLocalRows.length:null};
       result.local_read_notice = [online.status === "rejected" ? "联网结果读取失败，当前仅显示已上传视频" : "",local.status === "rejected" ? "本地视频读取失败，联网结果仍保留" : ""].filter(Boolean).join("；");
     } else result = await api("/api/hotspots?" + params);
   } catch (error) {
@@ -572,6 +575,7 @@ async function loadRecords() {
   records = Array.isArray(result.records) ? result.records : [];
   localUploadNotice = result.local_read_notice || "";
   recordCollection = result.collection || null;
+  if(mode==="game")localLibrarySnapshot=result.local_library_snapshot||null;
   if (mode !== "hotspot")
     records = records.filter((row) => row.kind === "video");
   renderRecords();
@@ -1035,11 +1039,19 @@ function gameTasks() {
   return tasks.filter((t) => t.payload?.game === game());
 }
 const activeStates = ["queued", "running"];
-const studyEntryEnabled=()=>learningSource()==="network"&&qualityCapabilities?.study?.enabled===true&&qualityCapabilities.study.configured===true;
+const studyEntryEnabled=()=>qualityCapabilities?.study?.enabled===true&&qualityCapabilities.study.configured===true&&(qualityCapabilities.study.supported_sources??["network"]).includes(learningSource());
 const taskRoute=(task,action="")=>`${task.task_store==="game-study"?"/api/game-study-tasks":task.task_store==="creative-candidate"?"/api/creative-candidates":"/api/tasks"}/${task.id}${action?"/"+action:""}`;
 function savedStudyTask(){
-  if(!studyEntryEnabled()||!currentProfile?.task_id||recordCollection?.requested_scope?.purpose!=="game-research"||recordCollection.requested_scope.keyword!==game())return null;
-  return tasks.find(t=>t.id===currentProfile.task_id&&t.task_store==="game-study"&&t.state==="completed"&&t.result?.comparisonMetrics?.collection_request_id===recordCollection.latest_request?.id)||null;
+  const target=game(),source=learningSource();
+  if(!studyEntryEnabled()||currentProfile?.game!==target||currentProfile?.learning_source!==source||!currentProfile.task_id||!currentProfile.version)return null;
+  const saved=tasks.find(t=>t.id===currentProfile.task_id&&t.task_store==="game-study"&&t.state==="completed"&&t.payload?.game===target&&t.payload?.learning_source===source&&t.result?.game===target&&t.result?.learning_source===source&&t.result?.profile_version===currentProfile.version);
+  if(!saved)return null;
+  if(source==="local"){
+    const captured=saved.result.source_counts?.captured_origins;
+    return localLibrarySnapshot?.game===target&&Number.isInteger(localLibrarySnapshot.count)&&Number.isInteger(captured)&&captured===localLibrarySnapshot.count?saved:null;
+  }
+  if(recordCollection?.requested_scope?.purpose!=="game-research"||recordCollection.requested_scope.keyword!==target||!recordCollection.latest_request?.id)return null;
+  return saved.result.comparisonMetrics?.collection_request_id===recordCollection.latest_request.id?saved:null;
 }
 function renderGameState() {
   const active = gameTasks().find(
@@ -1079,15 +1091,16 @@ function renderGameState() {
     : "https://www.douyin.com/";
 }
 async function loadProfile() {
+  const readGeneration=loadProfile.readGeneration=(loadProfile.readGeneration||0)+1;
   const target = game(),source=learningSource(target),
     generation = gameGeneration;
   let result=null;
   if(target){
-    if(source==="network"){
+    if(source==="network"||qualityCapabilities?.study?.supported_sources?.includes(source)){
       result=await api("/api/game-study-profile?"+new URLSearchParams({game:target,learning_source:source}));
     }
   }
-  if (target !== game() || source!==learningSource(target) || generation !== gameGeneration) return;
+  if (target !== game() || source!==learningSource(target) || generation !== gameGeneration || readGeneration!==loadProfile.readGeneration) return;
   currentProfile = result;
   renderGameState();
   renderComposer();
@@ -1103,7 +1116,7 @@ async function learning() {
   try {
     const saved=savedStudyTask();
     if(saved){openTask(saved.id);return;}
-    if(source==="network"&&studyEntryEnabled()){
+    if(studyEntryEnabled()){
       const task=await api("/api/game-study-tasks",request);
       await refreshStatus();
       if(target===game()&&source===learningSource(target)&&generation===gameGeneration){show(task.state==="completed"?"已读取保存的认知候选，没有重新学习。":"学习任务已接收；可在详情查看进度或停止。未新增红狐查询或解析。");openTask(task.id);}
@@ -1229,7 +1242,7 @@ function renderStudyDossier(root,result){
     if(value.references?.length){const refs=el("details");refs.append(el("summary","查看依据"));for(const ref of value.references)refs.append(el("p",`${ref.id}${ref.quote?" · "+ref.quote:" · 实际画面"}`,"small muted"));parent.append(refs);}
   };
   const count=result.source_counts||{};
-  root.append(el("h3","游戏认知候选"),el("p",`${count.selected??0} 条候选 · ${count.available_originals??0} 条可读原片 · ${result.coverage?.representative_count??0} 条代表视频。缺原片 ${count.unavailable_originals??0} 条；未自动补充。`,"notice"));
+  root.append(el("h3","游戏认知候选"),el("p",`${result.learning_source==="local"?`${count.captured_origins??0} 条本地上传 · `:""}${count.selected??0} 条候选 · ${count.available_originals??0} 条可读原片 · ${result.coverage?.representative_count??0} 条代表视频。缺原片 ${count.unavailable_originals??0} 条${count.excluded_candidates?`；超出候选上限 ${count.excluded_candidates} 条`:""}；未自动补充。`,"notice"));
   for(const [title,values]of [["游戏背景与基本活动",draft.background_and_loop],["玩家常见处境",draft.player_situations]]){root.append(el("h3",title));for(const value of values||[])claim(root,value);}
   root.append(el("h3","必要术语"));for(const term of draft.necessary_terms||[]){root.append(el("h4",term.term));claim(root,term.explanation);if(term.uncertainty)root.append(el("p","待核对："+term.uncertainty,"muted"));}
   root.append(el("h3","样本内容与表达"));for(const type of draft.content_types||[]){root.append(el("h4",`${type.name} · ${type.format==="video"?"视频":"图文"}`));claim(root,type.description);}for(const value of draft.expression_methods||[])claim(root,value);
@@ -1304,7 +1317,7 @@ function renderTaskDetail(t) {
     return;
   }
   if(t.task_store==="game-study"){
-    root.append(el("p","联网原片的认知候选；代表画面与自动转写不等于完整音画核验。创作和腾讯文档输出单独验收。","notice"));
+    root.append(el("p",`${t.payload.learning_source==="local"?"本地上传":"联网"}原片的认知候选；代表画面与自动转写不等于完整音画核验。创作和腾讯文档输出单独验收。`,"notice"));
     if(activeStates.includes(t.state))root.append(button("停止学习",async()=>{await api(taskRoute(t,"cancel"),{});await refreshStatus();}));
     if(t.resume_required)root.append(el("p","此任务尚未在当前执行器启动。返回游戏广场点击继续学习，不会因刷新自动执行。","notice"));
     if(t.result?.draft)renderStudyDossier(root,t.result);
@@ -1691,15 +1704,24 @@ $("create-draft").onclick = async () => {
   if(!candidate&&!qualityCapabilities?.creation?.enabled)return;
   const b = $("create-draft");
   const target=game(),generation=gameGeneration;
+  const profileBinding=currentProfile?{source:currentProfile.learning_source,task:currentProfile.task_id,version:currentProfile.version}:null;
   b.disabled = true;
   try {
     const selected = pool().find((r) => rowKey(r) === $("draft-source").value);
     if (!selected) throw Error("请先从已确认选题中选择素材。");
     let created;
     if(candidate){
-      if(currentProfile?.game!==game()||currentProfile?.learning_source!=="network"||!currentProfile.task_id||!currentProfile.version)throw Error("请先完成当前游戏的联网学习。");
-      if(selected.provider!=="redfox"||selected.kind!=="video"||!selected.collection_request_id)throw Error("当前创作入口需要已采集的真实视频和查询批次。");
-      created=await api("/api/creative-candidates",{game:game(),mode:$("mode").value,format:$("format").value,study_task_id:currentProfile.task_id,profile_version:currentProfile.version,source:{provider:"redfox",request_id:selected.collection_request_id,source_id:selected.source_id}});
+      if(currentProfile?.game!==game()||!["network","local"].includes(currentProfile?.learning_source)||!currentProfile.task_id||!currentProfile.version)throw Error("请先完成当前游戏所选来源的学习。");
+      if(selected.kind!=="video")throw Error("当前创作入口需要真实视频。");
+      let source;
+      if(selected.provider==="local_upload"){
+        if($("mode").value!=="A"||selected.game!==game()||!/^local_[a-f0-9]{64}$/.test(selected.source_id))throw Error("本地游戏视频请选择游戏视频改编；热点联动请选择已保存热点。");
+        source={provider:"local_upload",source_id:selected.source_id};
+      }else{
+        if(selected.provider!=="redfox"||!selected.collection_request_id)throw Error("请选择已采集的视频和查询批次。");
+        source={provider:"redfox",request_id:selected.collection_request_id,source_id:selected.source_id};
+      }
+      created=await api("/api/creative-candidates",{game:game(),mode:$("mode").value,format:$("format").value,study_task_id:currentProfile.task_id,profile_version:currentProfile.version,source});
     }else await api("/api/creative-jobs", {
       game: game(),
       source_id: selected.source_id,
@@ -1710,6 +1732,7 @@ $("create-draft").onclick = async () => {
     show("策划任务已创建；完成实际核验和草稿后，再确认腾讯文档交付。");
     await refreshStatus();
     if(target!==game()||generation!==gameGeneration)return;
+    if(candidate&&(!profileBinding||currentProfile?.learning_source!==profileBinding.source||currentProfile?.task_id!==profileBinding.task||currentProfile?.version!==profileBinding.version))return;
     switchPage("tasks");
     if(created)openTask(created.id);
   } catch (e) {

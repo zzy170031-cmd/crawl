@@ -25,3 +25,9 @@ test('same-author and insufficient or unavailable pools stay honest without fill
  assert.equal(r.source_ids.length,2);assert.equal(r.author_display_groups,1);assert.deepEqual(selectStudyRepresentatives([]).source_ids,[]);
  assert.throws(()=>selectStudyRepresentatives([rows[0],rows[0]]),{code:'STUDY_SELECTION_INVALID'});assert.throws(()=>selectStudyRepresentatives(rows,{limit:9}),{code:'STUDY_SELECTION_INVALID'});
 });
+
+test('local IDs support duration exploration without turning uploaded date or filename into publication or quality',()=>{
+ const rows=[row(1,null,30000),row(2,null,180000),row(3,null,90000)].map((r,i)=>({...r,source_id:'local_'+String(i+1).repeat(64),publication_date:null,uploaded_at:'2026-10-20T00:00:00Z',title:'unverified title'}));
+ const selected=selectStudyRepresentatives(rows,{limit:3});assert.equal(selected.source_ids.length,3);assert.equal(selected.unknown_author_count,3);assert.deepEqual(selected.duration_groups,{short:1,medium:1,long:1,unknown:0});
+ assert.deepEqual(selectStudyRepresentatives(rows.toReversed().map(r=>({...r,title:'changed',uploaded_at:'2030-01-01T00:00:00Z'}))),selectStudyRepresentatives(rows));
+});

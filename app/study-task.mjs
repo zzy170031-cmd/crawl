@@ -50,6 +50,9 @@ function projectOutput(output,library,payload){
   for(const key of ['like_count','comment_count','share_count','collect_count'])if(g.metrics?.[key])row.metrics[key]=pick(g.metrics[key],['known','missing','min','max','median']);return row;
  });
  const source_counts={selected:library.records.length,available_originals:library.records.filter(r=>r.availability==='available').length,unavailable_originals:library.records.filter(r=>r.availability!=='available').length};
+ // New local tasks disclose the captured pool and the library limit. Preserve
+ // historical network result hashes and the distinction from actually read samples.
+ if(payload.learning_source==='local'){source_counts.captured_origins=library.coverage?.input_origins??library.records.length;source_counts.excluded_candidates=Array.isArray(library.excluded)?library.excluded.length:0;}
  const result={game:payload.game,learning_source:payload.learning_source,learning_pipeline:STUDY_TASK_PIPELINE,library_id:payload.library_id,library_fingerprint:payload.library_fingerprint,status,accepted:false,ready:false,draft:{...draft,status,accepted:false},coverage,comparisonMetrics:metrics,source_counts};
  checkPublic(result);
  result.profile_version=hash(result);return result;

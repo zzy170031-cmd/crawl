@@ -84,11 +84,11 @@ const db = new Tasks(),
 const redfoxCredentialPath=join(dataDir,'redfox-credential.json');
 const studyRuntime=createNetworkStudyRuntime({dataRoot:dataDir,python:config.python,whisperModel:config.whisperModel,cliPath:config.studyHostCLI,isEnabled:networkStudyEnabled,
   getCurrentCollection:game=>{if(config.gameSource!=='redfox')throw Error('联网来源尚不支持学习');return bindLatestGameCollection(bridge,game);},
-  readCapturedCollection:(game,id)=>readLearningSnapshot(bridge,bridge.get(id),game),assets:redfoxAssets});
-const creativeSources=createCreativeSourceReader({bridge});
+  readCapturedCollection:(game,id)=>readLearningSnapshot(bridge,bridge.get(id),game),assets:redfoxAssets,localVideos});
+const creativeSources=createCreativeSourceReader({bridge,localVideos});
 const creativeRuntime=createCreativeRuntime({dataRoot:dataDir,python:config.python,whisperModel:config.whisperModel,cliPath:config.studyHostCLI,isEnabled:creativeCandidateEnabled,
   getStudyEvidence:input=>studyRuntime.readEvidence(input),
-  getSource:({game,mode,request_id,source_id})=>creativeSources.read({game,mode,request_id,source_id}),assets:redfoxAssets});
+  getSource:({game,mode,provider='redfox',request_id,source_id})=>creativeSources.read(provider==='local_upload'?{game,mode,provider,source_id}:{game,mode,request_id,source_id}),assets:redfoxAssets});
 // Historical dedicated-sheet receipts remain readable; all new writes use the
 // reviewed four-tab template layout.
 const candidateDelivery=createCandidateDelivery({dataRoot:dataDir,readCandidate:(id,options)=>creativeRuntime.readVerified(id,options),getDestination:()=>target(),isEnabled:()=>false});
@@ -293,7 +293,7 @@ const server = createServer(async (req, res) => {
         return json(res,200,{...result,experimental_quality_hold:experimentalQualityHold()});
       }finally{req.off('aborted',cancel);res.off('close',cancel);}
     }
-    if(url.pathname==='/api/quality-policy'&&req.method==='GET')return json(res,200,{experimental_quality_hold:experimentalQualityHold(),capabilities:{...qualityCapabilities(),study:{...qualityCapabilities().study,configured:studyRuntime.configured()},creative_candidate:{...qualityCapabilities().creative_candidate,configured:creativeRuntime.configured()}}});
+    if(url.pathname==='/api/quality-policy'&&req.method==='GET')return json(res,200,{experimental_quality_hold:experimentalQualityHold(),capabilities:{...qualityCapabilities(),study:{...qualityCapabilities().study,configured:studyRuntime.configured(),supported_sources:['network','local']},creative_candidate:{...qualityCapabilities().creative_candidate,configured:creativeRuntime.configured()}}});
     if(req.method==='POST'&&(url.pathname==='/api/creative-jobs'||url.pathname==='/api/game-research'&&(!qualityCapabilities().learning.enabled||config.gameSource!=='redfox'))){
       const input=await body(req);
       return json(res,409,qualityHoldResponse(typeof input.game==='string'?db.profile(input.game.normalize('NFKC').trim()):null));

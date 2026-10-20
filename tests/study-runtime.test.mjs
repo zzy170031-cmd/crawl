@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,realpathSync,writeFileSync,readFileSync,chmodSync,rmSync,existsSync,mkdirSync,symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {Readable} from 'node:stream';
+import {createLocalVideoStore} from '../app/local-videos.mjs';
 import {DatabaseSync} from 'node:sqlite';
 import {Tasks,hash} from '../app/tasks.mjs';
 import {createNetworkStudyRuntime} from '../app/study-runtime.mjs';
@@ -20,8 +22,8 @@ function setup(t){
   getCurrentCollection:async game=>{calls.current.push(game);return query(game);},
   readCapturedCollection:async(game,request)=>{calls.captured.push([game,request]);return query(game,request);},
   assets:{read:async row=>{calls.asset.push(row.source_id);if(row.source_id===id2&&!secondAvailable)return null;return {provider:'redfox',source_id:row.source_id,url:row.source_url,current_collection_request_id:row.collection_request_id,status:'av_readable',source_path:path,source_sha256:hash(bytes),bytes:bytes.length};}},
-  mediaFactory:()=>({prepare:async(item,{signal})=>{signal?.throwIfAborted();calls.media++;return {source_sha256:item.media.sha256,duration:10,has_audio:false,transcript:null,frames:[0,5,9.7].map(time=>({path:frame,sha256:hash(readFileSync(frame)),time}))};}}),
-  hostFactory:()=>{calls.factory++;return {json:async(system,input,schema,options)=>{calls.host++;assert(options.auditDir.startsWith(join(root,'game-study-tasks','audits')));assert.equal(options.images.length,1);if(hostHook)await hostHook(input);return {value:draft(input.packet.game),receipt:{provider:'codex-host',status:'completed',owned_process_closed:true,tool_events:0,exec_attempts:1,runner_retries:0,input_sha256:hash(input),model:null}};}};}
+  mediaFactory:()=>({prepare:async(item,{signal})=>{signal?.throwIfAborted();calls.media++;const actualFrame=join(root,item.media.sha256+'.png');writeFileSync(actualFrame,Buffer.from('controlled frame '+item.media.sha256));return {source_sha256:item.media.sha256,duration:10,has_audio:false,transcript:null,frames:[0,5,9.7].map(time=>({path:actualFrame,sha256:hash(readFileSync(actualFrame)),time}))};}}),
+  hostFactory:()=>{calls.factory++;return {json:async(system,input,schema,options)=>{calls.host++;assert(options.auditDir.startsWith(join(root,'game-study-tasks','audits')));assert(options.images.length>=1&&options.images.length<=8);if(hostHook)await hostHook(input);return {value:draft(input.packet.game),receipt:{provider:'codex-host',status:'completed',owned_process_closed:true,tool_events:0,exec_attempts:1,runner_retries:0,input_sha256:hash(input),model:null}};}};}
  };
  const make=overrides=>{const runtime=createNetworkStudyRuntime({...deps,...overrides});t.after(()=>runtime.close());return runtime;};
  return {root,cli,path,bytes,calls,deps,make,setEnabled:v=>enabled=v,setSecondAvailable:v=>secondAvailable=v,setHostHook:v=>hostHook=v};
@@ -49,7 +51,7 @@ test('disabled, missing CLI and zero readable originals fail before creating any
 });
 test('wrong game and source reject; two games capture their own current requests and profiles',async t=>{
  const f=setup(t),runtime=f.make();
- await assert.rejects(runtime.start({game,learning_source:'local'}),{code:'STUDY_SERVICE_INPUT_INVALID'});assert.equal(f.calls.current.length,0);
+ await assert.rejects(runtime.start({game,learning_source:'local'}),{code:'STUDY_LOCAL_SOURCE_REQUIRED'});assert.equal(f.calls.current.length,0);
  const a=await runtime.start({game,learning_source:'network'}),b=await runtime.start({game:'另一游戏',learning_source:'network'});await runtime.idle();
  assert.equal(runtime.profile({game,learning_source:'network'}).task_id,a.id);assert.equal(runtime.profile({game:'另一游戏',learning_source:'network'}).task_id,b.id);
  assert.deepEqual(f.calls.current,[game,'另一游戏']);assert.equal(f.calls.host,2);
@@ -99,4 +101,43 @@ test('existing ancestor aliases canonicalize, but data leaf, task directory and 
 test('runtime accepts the actual macOS /tmp ancestor alias at startup', {skip:process.platform!=='darwin'},async t=>{
  const f=setup(t),path=mkdtempSync('/tmp/study-runtime-alias-');t.after(()=>rmSync(path,{recursive:true,force:true}));
  const runtime=f.make({dataRoot:path});assert.equal(runtime.configured(),true);assert(existsSync(join(realpathSync(path),'game-study-tasks/tasks.sqlite')));await runtime.close();
+});
+
+async function localFixture(t,count=1){
+ const f=setup(t),store=createLocalVideoStore({folder:join(f.root,'local-videos'),probe:async()=>({format:{format_name:'mov,mp4,m4a,3gp,3g2,mj2',duration:'10'},streams:[{codec_type:'video',codec_name:'h264',width:32,height:32,disposition:{attached_pic:0}}]})});
+ t.after(()=>store.close());
+ const upload=async(name,which=game)=>{const bytes=Buffer.concat([Buffer.from('000000186674797069736f6d0000000069736f6d6d703432','hex'),Buffer.from(name)]);return store.importStream({stream:Readable.from([bytes]),game:which,filename:name+'.mp4',contentType:'video/mp4',declaredBytes:bytes.length});};
+ for(let i=0;i<count;i++)await upload('controlled-'+i);
+ const noNetwork=()=>assert.fail('local path must never access a network source');
+ const make=overrides=>f.make({getCurrentCollection:noNetwork,readCapturedCollection:noNetwork,assets:{read:noNetwork},localVideos:store,...overrides});
+ return {...f,store,upload,makeLocal:make};
+}
+test('real local store bytes feed one explicit Host candidate; source/date/metrics remain local and restart does not infer',async t=>{
+ const f=await localFixture(t),runtime=f.makeLocal();let observed;
+ f.setHostHook(input=>{observed=structuredClone(input);});
+ const a=await runtime.start({game,learning_source:'local'}),same=await runtime.start({game,learning_source:'local'});await runtime.idle();
+ assert.equal(a.id,same.id);const result=runtime.read(a.id);assert.equal(result.state,'completed');assert.equal(result.result.learning_source,'local');assert.equal(result.result.accepted,false);assert.equal(result.result.ready,false);
+ assert.equal(observed.packet.library.binding.collection,null);assert.equal(observed.packet.library.records[0].provider,'local_upload');assert.equal(observed.packet.library.records[0].publication_date,null);assert.equal(observed.packet.library.records[0].like_count,null);
+ assert.equal(observed.packet.sources[0].coverage.collection_request_id,null);assert.equal(result.result.comparisonMetrics.window,null);assert.deepEqual(result.result.comparisonMetrics.groups,[]);assert.equal(result.result.comparisonMetrics.excluded[0].reason,'no_network_publication_window');
+ assert(!JSON.stringify(result).includes(f.root));assert.equal(runtime.profile({game,learning_source:'network'}),null);
+ await runtime.close();const reopened=f.makeLocal(),before=structuredClone(f.calls);assert.equal(reopened.profile({game,learning_source:'local'}).task_id,a.id);reopened.read(a.id);reopened.list();await reopened.idle();assert.deepEqual(f.calls,before);
+ await reopened.start({game,learning_source:'local'});await reopened.idle();assert.equal(f.calls.host,1);assert.equal(f.calls.media,1);
+});
+test('local 37-source snapshot discloses 30 candidates/7 excluded and at most 8 read samples; new uploads do not alter captured task',async t=>{
+ const f=await localFixture(t,37);f.setHostHook(async input=>{assert.equal(input.packet.library.records.length,30);assert.equal(input.packet.representative_samples.length,8);await f.upload('new-after-capture');});
+ const runtime=f.makeLocal(),task=await runtime.start({game,learning_source:'local'});await runtime.idle();
+ const result=runtime.read(task.id);assert.equal(result.state,'completed');assert.deepEqual(result.result.source_counts,{selected:30,available_originals:30,unavailable_originals:0,captured_origins:37,excluded_candidates:7});assert.equal(result.result.coverage.representative_count,8);assert.equal(f.calls.media,8);assert.equal(f.calls.host,1);assert.equal(f.store.list(game).length,38);
+});
+test('local source game/bytes drift fail closed and no original or missing store never creates a task',async t=>{
+ const f=await localFixture(t),wrong=f.makeLocal({localVideos:{list:()=>f.store.list(game).map(r=>({...r,game:'foreign'})),open:id=>f.store.open(id)}});
+ await assert.rejects(wrong.start({game,learning_source:'local'}),{code:'LIBRARY_SOURCE_INVALID'});assert.equal(f.calls.host,0);assert.equal(countTasks(f.root),0);
+ const g=await localFixture(t);g.setHostHook(()=>writeFileSync(g.store.open(g.store.list(game)[0].source_id).path,'tamper'));
+ const runtime=g.makeLocal(),task=await runtime.start({game,learning_source:'local'});await runtime.idle();assert.equal(runtime.read(task.id).state,'needs_input');assert.equal(runtime.profile({game,learning_source:'local'}),null);assert.equal(g.calls.host,1);
+ await runtime.start({game:'empty game',learning_source:'local'}).then(()=>assert.fail('empty pool'),e=>assert.equal(e.code,'STUDY_ORIGINALS_REQUIRED'));assert.equal(countTasks(g.root),1);
+});
+test('local cancellation waits for owned callback; failed inference cannot retry and network never touches local readers',async t=>{
+ const f=await localFixture(t);let release,entered;const held=new Promise(r=>release=r),started=new Promise(r=>entered=r);f.setHostHook(async()=>{entered();await held;});
+ const runtime=f.makeLocal(),task=await runtime.start({game,learning_source:'local'});await started;let ended=false;const cancel=runtime.cancel(task.id).then(()=>{ended=true;});await Promise.resolve();assert.equal(ended,false);release();await cancel;await runtime.idle();assert.equal(runtime.read(task.id).state,'cancelled');assert.equal(runtime.profile({game,learning_source:'local'}),null);
+ const g=await localFixture(t);g.setHostHook(()=>{throw Error('controlled failure');});const failed=g.makeLocal(),a=await failed.start({game,learning_source:'local'});await failed.idle();await failed.start({game,learning_source:'local'});await failed.idle();assert.equal(failed.read(a.id).state,'needs_input');assert.equal(g.calls.host,1);
+ const h=setup(t),network=h.make({localVideos:{list:()=>assert.fail('network list local'),open:()=>assert.fail('network open local')}});await network.start({game,learning_source:'network'});await network.idle();assert.equal(h.calls.host,1);
 });

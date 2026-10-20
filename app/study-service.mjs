@@ -4,8 +4,8 @@ import {createStudyTaskRunner,STUDY_TASK_PIPELINE} from './study-task.mjs';
 import {normalizeLocalGame} from './local-videos.mjs';
 const fail=code=>{throw Object.assign(Error(code),{code});};
 function input(value){
- if(!value||Array.isArray(value)||Object.keys(value).sort().join(',')!=='game,learning_source'||value.learning_source!=='network')fail('STUDY_SERVICE_INPUT_INVALID');
- return {game:normalizeLocalGame(value.game),learning_source:'network'};
+ if(!value||Array.isArray(value)||Object.keys(value).sort().join(',')!=='game,learning_source'||!['network','local'].includes(value.learning_source))fail('STUDY_SERVICE_INPUT_INVALID');
+ return {game:normalizeLocalGame(value.game),learning_source:value.learning_source};
 }
 const tagged=(task,resume_required)=>({...task,task_store:'game-study',resume_required});
 export function createStudyService({db,captureInput,preparePacket,runStudy,revalidateInput,canStart}={}){
@@ -19,7 +19,7 @@ export function createStudyService({db,captureInput,preparePacket,runStudy,reval
  const allowed=()=>canStart()===true;
  function has(id){
   if(typeof id!=='string')return false;
-  const t=db.get(id);return Boolean(t?.type==='learn'&&t.payload?.learning_pipeline===STUDY_TASK_PIPELINE&&t.payload?.learning_source==='network');
+  const t=db.get(id);return Boolean(t?.type==='learn'&&t.payload?.learning_pipeline===STUDY_TASK_PIPELINE&&['network','local'].includes(t.payload?.learning_source));
  }
  function read(id){
   if(!has(id))fail('STUDY_SERVICE_TASK_NOT_FOUND');
@@ -30,9 +30,9 @@ export function createStudyService({db,captureInput,preparePacket,runStudy,reval
  function list(game){
   const normalized=game===undefined?null:normalizeLocalGame(game);
   return db.db.prepare(`SELECT id FROM tasks WHERE type=? AND json_valid(payload)
-   AND json_extract(payload,'$.learning_pipeline')=? AND json_extract(payload,'$.learning_source')=?
+   AND json_extract(payload,'$.learning_pipeline')=? AND json_extract(payload,'$.learning_source') IN ('network','local')
    ${normalized===null?'':"AND json_extract(payload,'$.game')=?"} ORDER BY updated DESC,id DESC`)
-   .all('learn',STUDY_TASK_PIPELINE,'network',...(normalized===null?[]:[normalized])).map(r=>read(r.id));
+   .all('learn',STUDY_TASK_PIPELINE,...(normalized===null?[]:[normalized])).map(r=>read(r.id));
  }
  const profile=value=>runner.profile(input(value));
  function removeQueued(id){queued.delete(id);const i=queue.indexOf(id);if(i!==-1)queue.splice(i,1);}

@@ -45,7 +45,7 @@ test('wrong source/game/item correspondence and local requests fail before provi
   await assert.rejects(builder.preparePacket(lib,ctx));
  }
  const builder=createStudyPacketBuilder({prepareMedia:()=>assert.fail('must not prepare')});
- await assert.rejects(builder.preparePacket(library(),{...ctx,learning_source:'local'}),{code:'STUDY_PACKET_SOURCE_INVALID'});
+ await assert.rejects(builder.preparePacket(library(),{...ctx,learning_source:'local'}),{code:'STUDY_PACKET_LIBRARY_INVALID'});
  assert.deepEqual(Object.keys(builder),['preparePacket']);
 });
 test('wrong prepared media, audio identity and timed segments cannot be relabelled with current video ID',async()=>{
@@ -87,4 +87,24 @@ test('oversize complete source text fails the Host input bound and is never trim
  const reference=refs(),body='原文'.repeat(180000);reference.sources[0].content=body;reference.sources[0].content_sha256=sha(body);
  const b=createStudyPacketBuilder({prepareMedia:async item=>media(item),readReferences:async()=>reference});
  await assert.rejects(b.preparePacket(library(),ctx),{code:'STUDY_PACKET_INPUT_LIMIT'});assert.equal(reference.sources[0].content,body);
+});
+
+function localLibrary(n=2){
+ const lib=library(n);lib.binding.collection=null;
+ for(const item of lib.items){Object.assign(item.record,{provider:'local_upload',source_id:'local_'+item.media.sha256,source_url:null,author:null,collection_request_id:null,collected_at:null,uploaded_at:at,published_date:null,publication_date:null,publication_precision:null});item.origins=[structuredClone(item.record)];}
+ lib.records=lib.items.map(i=>({...i.record,library_id:i.library_id,origins:i.origins,sha256:i.media.sha256,availability:i.availability,unavailable_reason:i.unavailable_reason}));return lib;
+}
+test('local packet preserves actual frame/full ASR identity and unknown publication data without manufacturing a network window',async()=>{
+ const lib=localLibrary(),before=structuredClone(lib),local={game,learning_source:'local'},seen=[];
+ const builder=createStudyPacketBuilder({prepareMedia:async item=>{seen.push(item.record.source_id);return media(item);},readReferences:async input=>{assert.equal(input.learning_source,'local');assert.equal(input.library_binding.collection,null);return refs();}});
+ const out=await builder.preparePacket(lib,local);assert.equal(out.packet.learning_source,'local');assert.equal(out.packet.library.binding.collection,null);assert.deepEqual(lib,before);assert.equal(seen.length,2);
+ const raw=out.packet.sources.filter(s=>s.kind==='raw-asr');assert.equal(raw.length,2);assert(raw.every(s=>s.source_id.startsWith('local_')&&s.coverage.collection_request_id===null&&s.coverage.terms_verified===false));assert(raw.every(s=>s.content.includes(' 未核原字，不能纠词 ')));
+ assert(out.packet.sources.filter(s=>s.kind==='video-frame').every(s=>s.coverage.builder==='study-packet-local-1'));
+ const metrics=calculateComparisonMetrics(prepareGameStudy(out.packet,out));assert.equal(metrics.window,null);assert.deepEqual(metrics.groups,[]);assert.equal(metrics.excluded.length,2);
+});
+test('local mismatched SHA/source, injected network metadata and wrong game reject before media or reference reads',async()=>{
+ for(const mutate of [l=>l.binding.collection=library().binding.collection,l=>l.records[0].published_date='2026-10-15',l=>l.records[0].like_count=42,l=>l.items[0].origins[0].game='other',l=>l.items[0].media.sha256='f'.repeat(64),l=>l.records[0].source_id='7695600881273670946']){
+  const lib=localLibrary();mutate(lib);let calls=0;const builder=createStudyPacketBuilder({prepareMedia:()=>{calls++;assert.fail('invalid input');},readReferences:()=>{calls++;assert.fail('invalid input');}});
+  await assert.rejects(builder.preparePacket(lib,{game,learning_source:'local'}));assert.equal(calls,0);
+ }
 });

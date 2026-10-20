@@ -31,10 +31,10 @@ test('explicit starts capture input and run FIFO with one active callback; dupli
  await f.service.start(request('甲'));await f.service.idle();assert.deepEqual(order,['甲','乙']);
  assert.equal(f.service.profile(request('甲')).task_id,a.id);assert.equal(f.service.read(a.id).task_store,'game-study');
 });
-test('gate false and invalid/local inputs cause zero capture; gate is checked again at FIFO dispatch and reads cannot resume',async t=>{
+test('gate false and invalid inputs cause zero capture; gate is checked again at FIFO dispatch and reads cannot resume',async t=>{
  let gate=false;const held=deferred(),entered=deferred();const f=fixture(t,{canStart:()=>gate,runStudy:async(p,ctx)=>{f.calls.run++;if(ctx.game==='甲'){entered.resolve();await held.promise;}return output(ctx.game);}});
  await assert.rejects(f.service.start(request('甲')),{code:'STUDY_SERVICE_HELD'});assert.equal(f.calls.capture,0);
- for(const value of [{game:'甲',learning_source:'local'},{...request('甲'),rows:[]},{game:'甲'},null])await assert.rejects(f.service.start(value),{code:'STUDY_SERVICE_INPUT_INVALID'});
+ for(const value of [{game:'甲',learning_source:'combined'},{...request('甲'),rows:[]},{game:'甲'},null])await assert.rejects(f.service.start(value),{code:'STUDY_SERVICE_INPUT_INVALID'});
  gate=true;const a=await f.service.start(request('甲'));await entered.promise;const b=await f.service.start(request('乙'));
  gate=false;held.resolve();await f.service.idle();assert.equal(f.calls.run,1);assert.equal(f.service.read(b.id).state,'queued');
  const calls={...f.calls};gate=true;f.service.read(b.id);f.service.list();f.service.has(a.id);f.service.profile(request('甲'));await f.service.idle();assert.deepEqual(f.calls,calls);
@@ -48,16 +48,16 @@ test('cancel queued task never prepares it; active cancellation waits callback a
  await Promise.resolve();assert(signal.aborted);assert.equal(settled,false);held.resolve();assert.equal((await cancellation).state,'cancelled');await f.service.idle();
  assert.equal(f.calls.prepare,1);assert.equal(f.calls.run,1);assert.equal(f.db.profile('甲'),null);assert.equal(f.db.get(a.id).owner,null);
 });
-test('read APIs isolate current network pipeline from legacy/local/other games and never execute callbacks after restart',async t=>{
+test('read APIs isolate the current pipeline from legacy/other games and retain separate local tasks and never execute callbacks after restart',async t=>{
  const f=fixture(t),a=await f.service.start(request('甲'));await f.service.idle();
  const legacy=f.db.create('learn',{game:'甲'}),other=f.db.create('create',{game:'x',profile_version:'x',source:{kind:'video',source_id:'x'}});
  const localRunner=createStudyTaskRunner(f.deps),local=await localRunner.create({game:'甲',learning_source:'local'});
  const reject=()=>assert.fail('read-only operation cannot call provider');
  const service=createStudyService({...f.deps,captureInput:reject,preparePacket:reject,runStudy:reject,revalidateInput:reject});
- assert.equal(service.has(legacy.id),false);assert.equal(service.has(other.id),false);assert.equal(service.has(local.id),false);assert.equal(service.has('missing'),false);
- for(const id of [legacy.id,other.id,local.id,'missing'])assert.throws(()=>service.read(id),{code:'STUDY_SERVICE_TASK_NOT_FOUND'});
- assert.deepEqual(service.list('甲').map(x=>x.id),[a.id]);assert.deepEqual(service.list('乙'),[]);assert.equal(service.profile(request('乙')),null);
- assert.throws(()=>service.profile({game:'甲',learning_source:'local'}),{code:'STUDY_SERVICE_INPUT_INVALID'});
+ assert.equal(service.has(legacy.id),false);assert.equal(service.has(other.id),false);assert.equal(service.has(local.id),true);assert.equal(service.has('missing'),false);
+ for(const id of [legacy.id,other.id,'missing'])assert.throws(()=>service.read(id),{code:'STUDY_SERVICE_TASK_NOT_FOUND'});
+ assert.deepEqual(new Set(service.list('甲').map(x=>x.id)),new Set([a.id,local.id]));assert.deepEqual(service.list('乙'),[]);assert.equal(service.profile(request('乙')),null);
+ assert.equal(service.profile({game:'甲',learning_source:'local'}),null);
  assert(!JSON.stringify([service.read(a.id),service.profile(request('甲'))]).includes('/private'));
  await service.idle();assert.equal(f.db.get(legacy.id).state,'queued');assert.equal(f.db.get(local.id).state,'queued');
 });
@@ -122,4 +122,11 @@ test('explicit start/cancel settle cancelled expired orphan without inference; G
  assert.equal(f.calls.prepare,0);assert.equal(f.calls.run,0);assert.equal(f.calls.validate,0);
  const liveBefore=f.db.get(live.id);await service.start(request('丙'));await service.idle();
  await assert.rejects(service.cancel(live.id),{code:'STUDY_SERVICE_NOT_OWNER'});assert.deepEqual(f.db.get(live.id),liveBefore);
+});
+
+test('same-game local and network remain separate FIFO tasks/profiles and a captured selection cannot change after start',async t=>{
+ const f=fixture(t),requestLocal={game:'甲',learning_source:'local'},aPending=f.service.start(requestLocal);requestLocal.learning_source='network';requestLocal.game='乙';
+ const a=await aPending,b=await f.service.start(request('甲'));await f.service.idle();assert.notEqual(a.id,b.id);
+ assert.equal(f.service.read(a.id).payload.learning_source,'local');assert.equal(f.service.profile({game:'甲',learning_source:'local'}).task_id,a.id);assert.equal(f.service.profile(request('甲')).task_id,b.id);assert.equal(f.service.profile({game:'乙',learning_source:'local'}),null);
+ const before={...f.calls};f.service.list('甲');await f.service.idle();assert.deepEqual(f.calls,before);assert.equal(f.calls.run,2);
 });

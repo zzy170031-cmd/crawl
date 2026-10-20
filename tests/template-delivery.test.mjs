@@ -7,7 +7,7 @@ import {randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {Tasks,hash} from '../app/tasks.mjs';
 import {CREATIVE_TASK_PIPELINE} from '../app/creative-task.mjs';
-import {createTemplateDelivery,TEMPLATE_HEADERS} from '../app/template-delivery.mjs';
+import {createTemplateDelivery,TEMPLATE_HEADERS,projectTemplateContent} from '../app/template-delivery.mjs';
 const tick=()=>new Promise(r=>setTimeout(r,5));
 function fixture(t,{missing=false,mode='A',placeholder=false,...options}={}){
  const root=mkdtempSync(join(tmpdir(),'template-delivery-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
@@ -35,7 +35,7 @@ function fixture(t,{missing=false,mode='A',placeholder=false,...options}={}){
 const writes=f=>f.calls.filter(c=>['sheet_add_sheet','sheet_set_range_value','sheet_set_link'].includes(c.name));
 async function deliver(f,s){const p=await s.prepare(f.q);await s.approve({plan_id:p.id,plan_sha256:p.plan_sha256});await s.idle();return s.read(p.id);}
 test('prepare is read-only, exact A/source/overview routes preserve draft and old history; repeated approval/restart zero writes',async t=>{
- const f=fixture(t),s=f.make(),p=await s.prepare(f.q);assert.equal(writes(f).length,0);assert.equal(p.routes[0].role,'A');assert.deepEqual(p.routes[0].rows,f.rows.slice(1));assert.equal(p.routes[2].rows[0].length,7);assert.equal(p.routes[1].rows[0].length,9);assert(!JSON.stringify(p).includes(f.root));
+ const f=fixture(t),s=f.make(),p=await s.prepare(f.q);assert.equal(writes(f).length,0);assert.equal(p.routes[0].role,'A');assert.deepEqual(p.routes[0].rows,f.rows.slice(1).filter(r=>r[0]!=='热点原片'));assert.equal(p.routes[2].rows[0].length,7);assert.equal(p.routes[1].rows[0].length,9);assert(!JSON.stringify(p).includes(f.root));
  await s.approve({plan_id:p.id,plan_sha256:p.plan_sha256});await s.idle();const r=s.read(p.id);assert.equal(r.state,'verified');assert.equal(r.receipt.routes.length,3);assert.equal(r.receipt.expected,undefined);assert.equal(f.exports.length,3);assert(f.exports.every(e=>e.region.start_row===1));assert.equal(f.sheets.find(x=>x.sheet_id==='sheet-B').cells.length,4);assert.equal(f.sheets.find(x=>x.sheet_id==='history').cells[0].string_value,'历史保留');
  const order=writes(f).filter(c=>c.name==='sheet_set_range_value').map(c=>c.args.sheet_id);assert.equal(order.at(-1),'sheet-overview');const count=f.calls.length;await s.approve({plan_id:p.id,plan_sha256:p.plan_sha256});await s.close();const reopened=f.make();assert.equal((await reopened.prepare(f.q)).id,p.id);assert.equal(reopened.read(p.id).state,'verified');assert.equal(f.calls.length,count);
 });
@@ -58,7 +58,7 @@ test('same target serialized across instances; cancel waits owned request and ca
 });
 test('export must prove actual offset text and links before overview; wrong URL cannot be hidden',async t=>{
  const f=fixture(t),s=f.make({verify:async()=>({content:true,links:false,styles:true})}),r=await deliver(f,s);assert.equal(r.state,'unknown');assert.equal(f.sheets.find(s=>s.sheet_id==='sheet-overview').cells.length,7);assert.equal(f.sheets.find(s=>s.sheet_id==='sheet-sources').cells.length,9);
- const g=fixture(t);g.setHook(async name=>{if(name==='sheet_get_cell_data'){const c=g.sheets.find(s=>s.sheet_id==='sheet-A').cells.find(c=>c.hyperlink);if(c)c.hyperlink.url='https://wrong.example/';}});const z=g.make(),rr=await deliver(g,z);assert.equal(rr.state,'unknown');assert.equal(g.exports.length,0);
+ const g=fixture(t);g.setHook(async name=>{if(name==='sheet_get_cell_data'){const c=g.sheets.find(s=>s.sheet_id==='sheet-sources').cells.find(c=>c.hyperlink);if(c)c.hyperlink.url='https://wrong.example/';}});const z=g.make(),rr=await deliver(g,z);assert.equal(rr.state,'unknown');assert.equal(g.exports.length,1);
 });
 test('bounded XLSX verifier handles nine columns at nonzero offset without expecting prefix blanks',t=>{
  const root=mkdtempSync(join(tmpdir(),'template-xlsx-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
@@ -93,4 +93,49 @@ test('read-only reconciliation cannot certify a workbook whose template headers 
 });
 test('approve CAS rejects a plan refreshed by another instance while candidate read awaited',async t=>{
  const f=fixture(t);let pause=false,entered=false,release;const a=f.make({readCandidate:async()=>{if(pause){entered=true;await new Promise(r=>release=r);}return structuredClone(f.candidate);}}),b=f.make();const original=await a.prepare(f.q);pause=true;const approval=a.approve({plan_id:original.id,plan_sha256:original.plan_sha256});while(!entered)await tick();const overview=f.sheets.find(s=>s.sheet_id==='sheet-overview');overview.cells.push({row:1,col:0,string_value:'new row',value_type:'STRING'});const refreshed=await b.prepare(f.q);assert.notEqual(refreshed.plan_sha256,original.plan_sha256);overview.cells=overview.cells.filter(c=>c.row!==1);release();await assert.rejects(approval,{code:'TEMPLATE_DELIVERY_PLAN_CHANGED'});assert.equal(writes(f).length,0);assert.equal(a.read(original.id).state,'prepared');
+});
+
+test('readable projection removes audit rows, remaps retained links and separates webpage/local media notes',async t=>{
+ const f=fixture(t),r=f.candidate.result,id='local_'+'a'.repeat(64);
+ r.draft={rows:[TEMPLATE_HEADERS.A.headers,['完整台词','保留开头、行动和结尾','游戏处境','待试拍'],
+  ['读取范围','{"frames":[0,8,16],"state":"raw_machine"}','',''],
+  ['本地选题原片','本地视频',id,'SHA-256：'+'a'.repeat(64)],
+  ['游戏资料','https://example.com/official','游戏官网','实际读取：画面抽样；语音自动转写'],
+  ['分镜参考','https://example.com/shot','保留这一镜','声音自行录制']],
+  links:[{row:4,col:1,url:'https://example.com/official'},{row:5,col:1,url:'https://example.com/shot'}],
+  source_notes:[{kind:'local-video',selected:true,source_id:id,title:'星际猎人战斗录屏',url:null,frames:[0,8,16],has_audio:true},
+   {kind:'web',selected:false,source_id:null,title:'游戏官网',url:'https://example.com/official',frames:[],has_audio:null}]};
+ r.boundary='One Host candidate internal English boundary';r.draft_sha256=hash(r.draft);delete r.result_version;r.result_version=hash(r);Object.assign(f.q,{result_version:r.result_version,draft_sha256:r.draft_sha256});
+ const original=structuredClone(r.draft),p=await f.make().prepare(f.q),main=p.routes[0],sources=p.routes[1],overview=p.routes[2];
+ assert.deepEqual(main.rows,[original.rows[1],original.rows[5]]);assert.deepEqual(main.links,[{row:2,col:1,url:'https://example.com/shot'}]);
+ assert.equal(sources.rows[0][0],'星际猎人战斗录屏');assert.equal(sources.rows[0][3],'');assert.equal(sources.rows[0][5],'0秒、8秒、16秒');assert.match(sources.rows[0][6],/未逐句核听/);
+ assert.deepEqual(sources.links,[{row:2,col:3,url:'https://example.com/official'}]);assert.match(sources.rows[1][5],/网页文字/);assert.match(sources.rows[1][6],/不适用/);assert(!sources.rows[1].join('').includes('自动转写'));
+ const visible=p.routes.map(r=>r.rows).flat(2).join('\n');for(const token of [id,'SHA-256','One Host','raw_machine',f.q.task_id,f.q.result_version,f.q.draft_sha256,'task=','result=','draft='])assert(!visible.includes(token),token);
+ assert.equal(overview.rows[0][6],'待试拍');assert.deepEqual(r.draft,original);assert.equal(writes(f).length,0);
+});
+
+test('old local IDs get readable fallback names and zero fabricated hyperlinks',()=>{
+ const id='local_'+'b'.repeat(64),r={game:'游戏',coverage:{frames:[2.5],has_audio:false},draft:{rows:[TEMPLATE_HEADERS.A.headers,['台词','完整正文','',''],['本地游戏参考',id,'SHA-256: hash','无链接']],links:[]}};
+ const view=projectTemplateContent(r);assert.equal(view.rows.length,1);assert.equal(view.sources.length,1);assert.equal(view.sources[0][0],'本地参考视频 1');assert.equal(view.sources[0][3],'');assert(!JSON.stringify(view).includes(id));assert.deepEqual(view.links,[]);
+});
+test('legacy evidence names fall back without rejecting normal titles containing colons',()=>{
+ const names=['publisher:rate','platform:community','game:study-frame:1234567890','game:P','study-asr:1234567890','selected:F0','星际猎人:初学攻略','玩法说明：角色与关卡','A guide: first steps'];
+ const r={game:'游戏',draft:{rows:[TEMPLATE_HEADERS.A.headers,['方案','保留原文','',''],...names.map((name,i)=>['游戏资料',`https://example.com/${i}`,name,'旧来源说明'])],links:names.map((_,i)=>({row:i+2,col:1,url:`https://example.com/${i}`}))}};
+ const before=structuredClone(r),view=projectTemplateContent(r);
+ for(let i=0;i<6;i++){assert.equal(view.sources[i][0],'参考网页');assert.equal(view.sources[i][3],`https://example.com/${i}`);}
+ for(let i=6;i<names.length;i++)assert.equal(view.sources[i][0],names[i]);
+ assert.deepEqual(r,before);assert.deepEqual(view.rows,[['方案','保留原文','','']]);
+});
+test('source note projection rejects forged local public links and unbound remote URLs',()=>{
+ const make=()=>({game:'游戏',draft:{rows:[TEMPLATE_HEADERS.A.headers,['完整方案','正文','','']],links:[],source_notes:[{kind:'local-video',selected:true,source_id:'local_'+'a'.repeat(64),title:'原片',url:null,frames:[1],has_audio:null}]}});
+ const local=make();local.draft.source_notes[0].url='https://example.com/fake-local';assert.throws(()=>projectTemplateContent(local),{code:'TEMPLATE_DELIVERY_DRAFT_INVALID'});
+ const remote=make();remote.draft.source_notes[0].kind='web';remote.draft.source_notes[0].url='https://example.com/not-captured';assert.throws(()=>projectTemplateContent(remote),{code:'TEMPLATE_DELIVERY_DRAFT_INVALID'});
+});
+
+test('pre-projection frozen prepared plan survives restart and explicit prepare without route migration',async t=>{
+ const f=fixture(t),one=f.make(),prepared=await one.prepare(f.q);await one.close();
+ const db=new Tasks(join(f.root,'template-deliveries')),key=`template:${prepared.id}:plan`,old=db.checkpoint(key);delete old.presentation_version;old.routes[0].rows.push(['旧冻结行','保持原文','旧证据编号','旧备注']);
+ old.layout_sha256=hash(old.routes);db.checkpoint(key,old);db.db.prepare('UPDATE tasks SET payload=? WHERE id=?').run(JSON.stringify({version:old.version,plan_sha256:hash(old)}),prepared.id);db.close();
+ const two=f.make(),calls=f.calls.length,reread=two.read(prepared.id);assert.equal(reread.plan_sha256,hash(old));assert.deepEqual((await two.prepare(f.q)).routes,old.routes);assert.equal(f.calls.length,calls);
+ await two.approve({plan_id:prepared.id,plan_sha256:hash(old)});await two.idle();assert.equal(two.read(prepared.id).state,'verified');assert.deepEqual(two.read(prepared.id).receipt.routes[0].rows,old.routes[0].rows);
 });

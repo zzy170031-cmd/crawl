@@ -10,6 +10,7 @@ import {destination,resolveDestination} from './delivery.mjs';
 import {TencentClient} from './tencent-client.mjs';
 import {verifyTemplateRegion} from './template-verify.mjs';
 export const TEMPLATE_DELIVERY_VERSION='four-template-delivery-1';
+export const TEMPLATE_PRESENTATION_VERSION='readable-template-1';
 export const TEMPLATE_HEADERS=Object.freeze({
  overview:{name:'创作总览',headers:['链路','目标游戏','创作方式','当前状态','内容交付','来源核验','备注']},
  A:{name:'A游戏视频改编',headers:['策划环节','完整创作内容','游戏结合与素材','制作说明']},
@@ -58,13 +59,53 @@ async function snapshot(call,file,sheet){
 async function templates(call,file){const sheets=await info(call,file),result={};for(const [role,spec]of Object.entries(TEMPLATE_HEADERS)){const found=sheets.filter(s=>s.sheet_name===spec.name);if(found.length>1)fail('TEMPLATE_DELIVERY_TEMPLATE_AMBIGUOUS');if(!found.length){result[role]=null;continue;}const s=await snapshot(call,file,found[0]);if(s.col_count<spec.headers.length||spec.headers.some((v,col)=>s.cells.find(c=>c.row===0&&c.col===col)?.text!==v)||s.cells.some(c=>c.row===0&&c.col>=spec.headers.length))fail('TEMPLATE_DELIVERY_TEMPLATE_HEADERS');result[role]=s;}return result;}
 function endRow(s){return s?Math.max(0,...s.cells.map(c=>c.row))+1:1;}
 function overviewStart(s,r,placeholders){if(!s)return {start:1,replace:false};const matches=[];for(let row=1;row<endRow(s);row++){const values=Array.from({length:7},(_,col)=>s.cells.find(c=>c.row===row&&c.col===col)?.text||'');if(values[0]===r.mode&&values[1]===r.game&&placeholders.some(p=>hash(p)===hash(values))&&!s.cells.some(c=>c.row===row&&(c.col>=7||c.url)))matches.push(row);}if(matches.length>1)fail('TEMPLATE_DELIVERY_PLACEHOLDER_AMBIGUOUS');return matches.length?{start:matches[0],replace:true}:{start:endRow(s),replace:false};}
+const SOURCE_LABELS=new Set(['热点原片','游戏参考作品','游戏资料','本地选题原片','本地游戏参考']);
+const INTERNAL_SOURCE_NAME=/^(?:publisher|platform|game|selected|study-frame|study-asr|study-image|study-page|image-page|competitor-content):\S+$/i;
+function readableName(value,fallback){
+ return typeof value==='string'&&value.trim()&&!INTERNAL_SOURCE_NAME.test(value.trim())&&!/local_[a-f0-9]{64}|[a-f0-9]{64}|\b(?:task|result|draft)=|SHA-?256/i.test(value)?value:fallback;
+}
+function sourceNotes(r){
+ if(r.draft.source_notes!==undefined){
+  if(!Array.isArray(r.draft.source_notes)||r.draft.source_notes.length>100)fail('TEMPLATE_DELIVERY_DRAFT_INVALID');
+  return r.draft.source_notes.map(n=>{
+   if(!strictKeys(n,['kind','selected','source_id','title','url','frames','has_audio'])||!['local-video','video','web','image'].includes(n.kind)||typeof n.selected!=='boolean'||typeof n.title!=='string'||!(n.source_id===null||typeof n.source_id==='string')||!Array.isArray(n.frames)||n.frames.some(t=>!Number.isFinite(t)||t<0)||![null,true,false].includes(n.has_audio))fail('TEMPLATE_DELIVERY_DRAFT_INVALID');
+   if(n.kind==='local-video'){if(n.url!==null)fail('TEMPLATE_DELIVERY_DRAFT_INVALID');}
+   else{let u;try{u=new URL(n.url);}catch{fail('TEMPLATE_DELIVERY_DRAFT_INVALID');}if(u.protocol!=='https:'||u.username||u.password||!r.draft.links.some(l=>l.url===n.url))fail('TEMPLATE_DELIVERY_DRAFT_INVALID');}
+   return clone(n);
+  });
+ }
+ // Old drafts remain usable. Do not infer a local filename from an internal ID.
+ const notes=r.draft.links.map(l=>{const row=r.draft.rows[l.row],selected=row[0]==='热点原片',video=selected||row[0]==='游戏参考作品';return {kind:video?'video':'web',selected,source_id:null,title:readableName(row[2],video?'参考视频':'参考网页'),url:l.url,frames:selected&&Array.isArray(r.coverage?.frames)?r.coverage.frames.filter(x=>Number.isFinite(x)&&x>=0):[],has_audio:selected&&typeof r.coverage?.has_audio==='boolean'?r.coverage.has_audio:null};});
+ for(const row of r.draft.rows.filter(r=>r[0]==='本地选题原片'||r[0]==='本地游戏参考')){
+  const selected=row[0]==='本地选题原片';notes.push({kind:'local-video',selected,source_id:null,title:readableName(row[1],`本地参考视频 ${notes.filter(n=>n.kind==='local-video').length+1}`),url:null,frames:selected&&Array.isArray(r.coverage?.frames)?r.coverage.frames.filter(x=>Number.isFinite(x)&&x>=0):[],has_audio:selected&&typeof r.coverage?.has_audio==='boolean'?r.coverage.has_audio:null});
+ }
+ return notes;
+}
+export function projectTemplateContent(r){
+ const rowMap=new Map(),rows=[];
+ for(const [i,row]of r.draft.rows.entries()){
+  if(i===0||row[0]==='读取范围'||SOURCE_LABELS.has(row[0]))continue;
+  rowMap.set(i,rows.length);rows.push(clone(row));
+ }
+ const links=r.draft.links.filter(l=>rowMap.has(l.row)).map(l=>({...l,row:rowMap.get(l.row)}));
+ const sources=sourceNotes(r).map((n,i)=>{
+  const video=['video','local-video'].includes(n.kind),name=readableName(n.title,`${n.kind==='local-video'?'本地视频':'参考资料'} ${i+1}`);
+  const times=[...new Set(n.frames)].sort((a,b)=>a-b).map(t=>`${Number(t.toFixed(2))}秒`).join('、');
+  return [name,r.game,n.selected?'选题原片':video?'游戏参考视频':n.kind==='image'?'游戏参考图片':'游戏参考网页',n.url||'',
+   n.kind==='local-video'?'用户上传视频；没有公开链接':video?'已保存的视频素材':n.kind==='image'?'已读取参考图片':'已读取网页文字',
+   video?(times||'本次没有记录具体抽帧时点'):n.kind==='image'?'图片资料，不涉及视频抽帧':'网页文字，不涉及视频抽帧',
+   video?(n.has_audio===false?'已检查：没有音轨':n.has_audio===true?'语音已自动转写，未逐句核听；音乐和音效未核听':'本项只确认画面，声音未核听'):'不适用：本项没有进行语音读取',
+   video?'文字及专名仍需结合原画面复核':'按已读取的原文或图片使用',
+   video?'仅依据已读取的画面和语音范围，不代表完整连续观看':n.kind==='image'?'只说明图片中实际可见的内容':'只说明该网页的表述，不代替具体玩法核验'];
+ });
+ return {rows,links,sources};
+}
 function layout(r,q,base,placeholders){
  const main=r.mode,mainStart=endRow(base[main]),sourceStart=endRow(base.sources),o=overviewStart(base.overview,r,placeholders),titles=(r.plan.ideas||[]).map(i=>i.title).filter(x=>typeof x==='string').join(' / ')||'固定创作候选';
- const ref=`task=${q.task_id}\nresult=${q.result_version}\ndraft=${q.draft_sha256}`;
- const sources=r.draft.links.map((l,index)=>{const selected=index===0&&r.draft.rows[l.row][0]==='热点原片',label=r.draft.rows[l.row][0];return [selected?r.binding.source_id:l.url,r.game,`${r.mode} · ${label}`,l.url,selected?'已核固定原片读取回执；非完整连续观看':'参考资料链接；本次交付未新增媒体读取认证',selected?(Array.isArray(r.coverage?.frames)?JSON.stringify(r.coverage.frames):'固定稿未提供帧时点'):'本项未新增核验，见固定稿来源说明',selected?(r.coverage?.has_audio===false?'回执标记无音轨':`机器转写未逐句核听；状态=${r.coverage?.speech||'未知'}`):'本项未新增核验，见固定稿来源说明',selected?'字幕/ASR差异见固定稿重点拆解；非全量术语校对':'本项未新增字幕核验，见固定稿来源说明',`${selected?'离散抽帧；声音/音乐未读；':'参考资料范围以固定稿为准；'}${r.boundary||'候选来源，未新增核验'}\n${ref}`];});
- const routes=[{role:main,name:TEMPLATE_HEADERS[main].name,sheet_id:base[main]?.sheet_id||null,start_row:mainStart,rows:clone(r.draft.rows.slice(1)),links:r.draft.links.map(l=>({...l,row:mainStart+l.row-1})),replace:false},
- {role:'sources',name:TEMPLATE_HEADERS.sources.name,sheet_id:base.sources?.sheet_id||null,start_row:sourceStart,rows:sources,links:sources.map((row,i)=>({row:sourceStart+i,col:3,url:row[3]})),replace:false},
- {role:'overview',name:TEMPLATE_HEADERS.overview.name,sheet_id:base.overview?.sheet_id||null,start_row:o.start,rows:[[r.mode,r.game,r.format==='image'?'图文创作候选':'视频创作候选','固定稿已交付；质量仍待审阅',titles,'正文与来源表逐字/链接回读；范围见来源表',ref]],links:[],sheet_links:[{row:o.start,col:4,target_role:main},{row:o.start,col:5,target_role:'sources'}],replace:o.replace}];
+ const view=projectTemplateContent(r),sources=view.sources;
+ const routes=[{role:main,name:TEMPLATE_HEADERS[main].name,sheet_id:base[main]?.sheet_id||null,start_row:mainStart,rows:view.rows,links:view.links.map(l=>({...l,row:mainStart+l.row})),replace:false},
+ {role:'sources',name:TEMPLATE_HEADERS.sources.name,sheet_id:base.sources?.sheet_id||null,start_row:sourceStart,rows:sources,links:sources.flatMap((row,i)=>row[3]?[{row:sourceStart+i,col:3,url:row[3]}]:[]),replace:false},
+ {role:'overview',name:TEMPLATE_HEADERS.overview.name,sheet_id:base.overview?.sheet_id||null,start_row:o.start,rows:[[r.mode,r.game,r.format==='image'?'图文创作方案':'视频创作方案','稿件待试拍',titles,'查看素材来源与读取说明','待试拍']],links:[],sheet_links:[{row:o.start,col:4,target_role:main},{row:o.start,col:5,target_role:'sources'}],replace:o.replace}];
  for(const route of routes){if(route.start_row+route.rows.length>(base[route.role]?.row_count||200))fail('TEMPLATE_DELIVERY_SHEET_CAPACITY');route.precondition_sha256=hash(base[route.role]);}
  return routes;
 }
@@ -84,9 +125,9 @@ export function createTemplateDelivery({dataRoot,readCandidate,getDestination,is
  function tracked(fn){if(stopped)fail('TEMPLATE_DELIVERY_CLOSED');const p=Promise.resolve().then(fn);pending.add(p);return p.catch(e=>{fail(safeError(e));}).finally(()=>pending.delete(p));}
  function ro(signal){return async(name,args)=>{signal?.throwIfAborted();if(!READ.has(name))fail('TEMPLATE_DELIVERY_TOOL_DENIED');const r=await client.call(name,args,{signal});signal?.throwIfAborted();responseOK(r);return r;};}
  async function fixed(p,signal){signal?.throwIfAborted();if(hash(target(await getDestination()))!==hash(p.target))fail('TEMPLATE_DELIVERY_TARGET_CHANGED');candidate(await readCandidate(p.request.task_id,{signal}),p.request);signal?.throwIfAborted();}
- function prepare(value,{expectedTarget}={}){const q=request(value);return tracked(async()=>{const signal=AbortSignal.timeout(timeoutMs),dest=target(await getDestination());if(expectedTarget!==undefined&&hash(target(expectedTarget))!==hash(dest))fail('TEMPLATE_DELIVERY_TARGET_CHANGED');const identity=hash({version:TEMPLATE_DELIVERY_VERSION,...q,target:dest});const prior=db.db.prepare('SELECT id FROM tasks WHERE key=?').get(identity);if(prior&&(task(prior.id).state!=='prepared'||db.checkpoint(receiptKey(prior.id))))return read(prior.id);
+ function prepare(value,{expectedTarget}={}){const q=request(value);return tracked(async()=>{const signal=AbortSignal.timeout(timeoutMs),dest=target(await getDestination());if(expectedTarget!==undefined&&hash(target(expectedTarget))!==hash(dest))fail('TEMPLATE_DELIVERY_TARGET_CHANGED');const identity=hash({version:TEMPLATE_DELIVERY_VERSION,...q,target:dest});const prior=db.db.prepare('SELECT id FROM tasks WHERE key=?').get(identity);if(prior&&(task(prior.id).state!=='prepared'||db.checkpoint(receiptKey(prior.id))||plan(prior.id).presentation_version!==TEMPLATE_PRESENTATION_VERSION))return read(prior.id);
   const r=candidate(await readCandidate(q.task_id,{signal}),q);await resolveDestination(dest,{client:{call:(n,a)=>ro(signal)(n,a)},signal});const bases=await templates(ro(signal),dest.file_id),routes=layout(r,q,bases,overviewPlaceholders);if(hash(target(await getDestination()))!==hash(dest))fail('TEMPLATE_DELIVERY_TARGET_CHANGED');
-  const p={version:TEMPLATE_DELIVERY_VERSION,request:q,target:dest,game:r.game,mode:r.mode,source_binding_sha256:hash(r.binding),draft_sha256:hash(r.draft),baselines:bases,routes,layout_sha256:hash(routes),boundary};
+  const p={version:TEMPLATE_DELIVERY_VERSION,presentation_version:TEMPLATE_PRESENTATION_VERSION,request:q,target:dest,game:r.game,mode:r.mode,source_binding_sha256:hash(r.binding),draft_sha256:hash(r.draft),baselines:bases,routes,layout_sha256:hash(routes),boundary};
   const id=db.transaction(()=>{const exists=db.db.prepare('SELECT id FROM tasks WHERE key=?').get(identity);if(exists){const oldTask=task(exists.id);if(oldTask.state!=='prepared'||oldTask.owner!==null||oldTask.cancelled||db.checkpoint(receiptKey(exists.id)))return exists.id;const previous=plan(exists.id);if(hash(previous)!==hash(p)){db.checkpoint(`template:${exists.id}:plan-history:${hash(previous)}`,previous);db.checkpoint(planKey(exists.id),p);db.db.prepare('UPDATE tasks SET payload=?,updated=? WHERE id=? AND state=? AND owner IS NULL').run(JSON.stringify({version:TEMPLATE_DELIVERY_VERSION,plan_sha256:hash(p)}),now(),exists.id,'prepared');}return exists.id;}const id=randomUUID();db.db.prepare('INSERT INTO tasks(id,key,type,state,payload,stage,created,updated) VALUES(?,?,?,?,?,?,?,?)').run(id,identity,'template-delivery','prepared',JSON.stringify({version:TEMPLATE_DELIVERY_VERSION,plan_sha256:hash(p)}),'模板分配待确认',now(),now());db.checkpoint(planKey(id),p);return id;});return read(id);
  });}
  function owns(id,owner,signal){signal?.throwIfAborted();const t=task(id);if(t.state!=='writing'||t.owner!==owner||t.cancelled||t.lease<=Date.now())fail('TEMPLATE_DELIVERY_OWNERSHIP_LOST');}

@@ -10,7 +10,7 @@ export function selectStudyRepresentatives(records,{limit=8}={}){
  if(!Array.isArray(records)||!Number.isInteger(limit)||limit<1||limit>8)fail();
  const seen=new Set(),rows=[];
  for(const row of records){
-  if(!row||typeof row.source_id!=='string'||!/^\d{10,25}$/.test(row.source_id)||seen.has(row.source_id))fail();seen.add(row.source_id);
+  if(!row||typeof row.source_id!=='string'||!/^(?:\d{10,25}|local_[a-f0-9]{64})$/.test(row.source_id)||seen.has(row.source_id))fail();seen.add(row.source_id);
   if(row.availability==='available'&&row.kind==='video')rows.push({id:row.source_id,author:author(row),bucket:bucket(row),day:date(row)});
  }
  const selected=[],authorCounts=new Map(),buckets=new Set();

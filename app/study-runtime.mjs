@@ -1,4 +1,4 @@
-// Explicit network-learning candidate runtime. This owns a separate task DB;
+// Explicit single-source learning candidate runtime. This owns a separate task DB;
 // the caller owns freshness policy, feature enablement and source credentials.
 import {constants,accessSync,lstatSync,realpathSync,mkdirSync,existsSync} from 'node:fs';
 import {isAbsolute,resolve,join} from 'node:path';
@@ -20,8 +20,8 @@ function canonicalRoot(path){
  if(!stat.isDirectory()||stat.isSymbolicLink())fail('STUDY_RUNTIME_PATH_INVALID');
  return realpathSync(path);
 }
-export function createNetworkStudyRuntime({dataRoot,getCurrentCollection,readCapturedCollection,assets,python,whisperModel,cliPath,isEnabled,readReferences,hostFactory=options=>new HostAssistant(options),mediaFactory=createStudyMedia}={}){
- if(typeof dataRoot!=='string'||!isAbsolute(dataRoot)||[getCurrentCollection,readCapturedCollection,isEnabled,hostFactory,mediaFactory].some(f=>typeof f!=='function')||typeof assets?.read!=='function'||readReferences!==undefined&&typeof readReferences!=='function')fail('STUDY_RUNTIME_CONFIG_INVALID');
+export function createNetworkStudyRuntime({dataRoot,getCurrentCollection,readCapturedCollection,assets,localVideos,python,whisperModel,cliPath,isEnabled,readReferences,hostFactory=options=>new HostAssistant(options),mediaFactory=createStudyMedia}={}){
+ if(typeof dataRoot!=='string'||!isAbsolute(dataRoot)||[isEnabled,hostFactory,mediaFactory].some(f=>typeof f!=='function')||readReferences!==undefined&&typeof readReferences!=='function')fail('STUDY_RUNTIME_CONFIG_INVALID');
  const root=canonicalRoot(resolve(dataRoot)),folder=safeDirectory(join(root,'game-study-tasks')),audits=safeDirectory(join(folder,'audits'));
  for(const suffix of ['','-wal','-shm']){const path=join(folder,'tasks.sqlite'+suffix);if(existsSync(path)&&(lstatSync(path).isSymbolicLink()||!lstatSync(path).isFile()||realpathSync(path)!==path))fail('STUDY_RUNTIME_PATH_INVALID');}
  const db=new Tasks(folder);let host,media,closed=false,closing;
@@ -47,6 +47,14 @@ export function createNetworkStudyRuntime({dataRoot,getCurrentCollection,readCap
   captureInput:async input=>{
    if(isEnabled()!==true)fail('STUDY_SERVICE_HELD');
    dependencies();
+   if(input.learning_source==='local'){
+    if(typeof localVideos?.list!=='function'||typeof localVideos?.open!=='function')fail('STUDY_LOCAL_SOURCE_REQUIRED');
+    const uploads=await localVideos.list(input.game);
+    const library=await buildGameStudyLibrary({game:input.game,uploads,openLocal:id=>localVideos.open(id)});
+    if(!library.coverage.available_originals)fail('STUDY_ORIGINALS_REQUIRED');
+    return library;
+   }
+   if(typeof getCurrentCollection!=='function'||typeof readCapturedCollection!=='function'||typeof assets?.read!=='function')fail('STUDY_CURRENT_COLLECTION_REQUIRED');
    let collection;
    try{collection=await getCurrentCollection(input.game);}catch{fail('STUDY_CURRENT_COLLECTION_REQUIRED');}
    if(!collection)fail('STUDY_CURRENT_COLLECTION_REQUIRED');
@@ -57,6 +65,18 @@ export function createNetworkStudyRuntime({dataRoot,getCurrentCollection,readCap
   preparePacket:builder.preparePacket,
   revalidateInput:async(library,ctx)=>{
    ctx.signal?.throwIfAborted();
+   if(ctx.learning_source==='local'){
+    if(library.binding.collection!==null||typeof localVideos?.list!=='function'||typeof localVideos?.open!=='function')return false;
+    // Rebuild only the captured source set, in its original order. Newly saved
+    // media cannot silently expand a running task, including its excluded tail.
+    const ids=[...library.items,...library.excluded].flatMap(item=>item.origins.map(o=>o.source_id));
+    const listed=await localVideos.list(ctx.game);ctx.signal?.throwIfAborted();
+    if(!Array.isArray(listed)||new Set(listed.map(r=>r.source_id)).size!==listed.length)return false;
+    const byId=new Map(listed.map(row=>[row.source_id,row]));
+    if(ids.some(id=>!byId.has(id)))return false;
+    const replay=await buildGameStudyLibrary({game:ctx.game,uploads:ids.map(id=>byId.get(id)),openLocal:id=>localVideos.open(id),signal:ctx.signal});
+    return hash(replay)===hash(library);
+   }
    const collection=await readCapturedCollection(ctx.game,library.binding.collection.collection_request_id);
    ctx.signal?.throwIfAborted();
    const available=new Set(library.records.filter(r=>r.availability==='available').flatMap(r=>r.origins.map(o=>o.source_id)));

@@ -37,10 +37,52 @@ const writes=f=>f.calls.filter(c=>c.name==='sheet_add_sheet'||c.name.startsWith(
 const approve=(s,p,extra={})=>s.approve({plan_id:p.id,plan_sha256:p.plan_sha256},{expectedTarget:p.target,...extra});
 const put=(s,row,values)=>values.forEach((text,col)=>{const old=s.cells.find(c=>c.row===row&&c.col===col),v={row,col,value_type:'STRING',string_value:text};if(old)Object.assign(old,v);else s.cells.push(v);});
 
-test('prepare scans complete allocation, routes exact original draft at nonzero offset, and is read only',async t=>{
+test('prepare scans complete allocation, preserves creative body and moves both sources at nonzero offset without writes',async t=>{
  const f=fixture(t),s=f.make(),{q,c}=f.candidate();put(f.sheets.find(s=>s.role==='A'),151,['existing late user row','','','']);
- const p=await s.prepare(q,{expectedTarget:f.target()});assert.equal(writes(f).length,0);const main=p.routes.find(r=>r.role==='A');assert.equal(main.start_row,152);assert.deepEqual(main.rows,c.result.draft.rows.slice(1));assert.equal(main.links[0].row,153);
+ const p=await s.prepare(q,{expectedTarget:f.target()});assert.equal(writes(f).length,0);const main=p.routes.find(r=>r.role==='A');assert.equal(main.start_row,152);
+ assert.deepEqual(main.rows,[c.result.draft.rows[1],c.result.draft.rows[4]]);assert.deepEqual(main.links,[]);
+ const sources=p.routes.find(r=>r.role==='sources');
+ assert.deepEqual(sources.rows.map(r=>[r[0],r[3]]),[['选题标题',c.result.draft.links[0].url],['公开原文',c.result.draft.links[1].url]]);
+ assert.deepEqual(sources.links,c.result.draft.links.map((l,i)=>({row:sources.start_row+i,col:3,url:l.url})));
+ assert.match(sources.rows[0][5],/0秒、12秒、24秒/);assert.match(sources.rows[1][6],/没有进行语音读取/);
  await approve(s,p);await s.idle();assert.equal(s.read(p.id).state,'verified');assert.equal(f.sheets.find(s=>s.role==='A').cells.find(c=>c.row===151&&c.col===0).string_value,'existing late user row');assert.equal(f.exports.find(e=>e.name==='A游戏视频改编').region.start_row,152);
+});
+test('readable local projection preserves every non-source cell and exact link coordinates after removed rows',async t=>{
+ const f=fixture(t),s=f.make(),{c,q}=f.candidate(),r=c.result,bodyURL='https://example.com/production-reference',webURL='https://example.com/reference';
+ r.draft={rows:[TEMPLATE_HEADERS.A.headers,
+  ['完整台词','第一段\n第二段，逐字保留','玩家具体动作','原限定'],
+  ['读取范围','{"internal_hash":"'+('a'.repeat(64))+'"}','',''],
+  ['本地选题原片','录屏甲.mp4','用户上传的本地视频','无公开链接'],
+  ['游戏资料',webURL,'资料页面','原来源'],
+  ['镜头03','保留城池文字与标点',bodyURL,'等待3秒'],
+  ['最后一段','不能截尾','','']],
+  links:[{row:4,col:1,url:webURL},{row:5,col:2,url:bodyURL}],
+  source_notes:[
+   {kind:'local-video',selected:true,source_id:'local_'+'b'.repeat(64),title:'录屏甲.mp4',url:null,frames:[0,4,8],has_audio:false},
+   {kind:'web',selected:false,source_id:null,title:'公开说明',url:webURL,frames:[],has_audio:null},
+   {kind:'web',selected:false,source_id:null,title:'拍摄参考',url:bodyURL,frames:[],has_audio:null}]};
+ r.draft_sha256=hash(r.draft);delete r.result_version;r.result_version=hash(r);Object.assign(q,{result_version:r.result_version,draft_sha256:r.draft_sha256});
+ put(f.sheets.find(x=>x.role==='A'),40,['旧用户正文','','','']);put(f.sheets.find(x=>x.role==='sources'),17,['旧来源']);
+ const p=await s.prepare(q),main=p.routes.find(x=>x.role==='A'),sources=p.routes.find(x=>x.role==='sources');
+ assert.deepEqual(main.rows,[r.draft.rows[1],r.draft.rows[5],r.draft.rows[6]]);
+ assert.deepEqual(main.links,[{row:42,col:2,url:bodyURL}]);
+ assert.equal(sources.rows.length,3);assert.deepEqual(sources.rows.map(x=>x[3]),['',webURL,bodyURL]);
+ assert.deepEqual(sources.links,[{row:19,col:3,url:webURL},{row:20,col:3,url:bodyURL}]);
+ assert.equal(sources.rows[0][0],'录屏甲.mp4');assert.match(sources.rows[0][6],/没有音轨/);
+ const visible=JSON.stringify(p.routes.map(x=>x.rows));
+ for(const privateText of ['local_'+'b'.repeat(64),'a'.repeat(64),q.task_id,q.result_version,q.draft_sha256])assert(!visible.includes(privateText));
+ assert.equal(writes(f).length,0);await approve(s,p);await s.idle();assert.equal(s.read(p.id).state,'verified');
+ const cells=f.sheets.find(x=>x.role==='A').cells;
+ for(const [i,row]of main.rows.entries())for(const [col,text]of row.entries())assert.equal(cells.find(c=>c.row===main.start_row+i&&c.col===col)?.string_value,text);
+ assert.equal(cells.find(c=>c.row===40&&c.col===0).string_value,'旧用户正文');
+});
+test('legacy source evidence identifiers become readable names without removing their public links',async t=>{
+ const f=fixture(t),s=f.make(),{c,q}=f.candidate(),r=c.result;
+ r.draft.rows[3][2]='publisher:rate';
+ r.draft_sha256=hash(r.draft);delete r.result_version;r.result_version=hash(r);Object.assign(q,{result_version:r.result_version,draft_sha256:r.draft_sha256});
+ const p=await s.prepare(q),sources=p.routes.find(x=>x.role==='sources');
+ assert.equal(sources.rows[1][0],'参考网页');assert.equal(sources.rows[1][3],'https://example.com/reference');
+ assert(!JSON.stringify(p.routes.map(x=>x.rows)).includes('publisher:rate'));assert.equal(writes(f).length,0);
 });
 test('missing templates are planned without creation and created only after exact approval',async t=>{
  const f=fixture(t);f.sheets.length=0;const s=f.make(),{q}=f.candidate(),p=await s.prepare(q);assert.equal(writes(f).length,0);assert.equal(p.templates.filter(x=>x.create).length,4);
@@ -80,7 +122,8 @@ test('a remote edit after a responded batch stops the next mutation',async t=>{
 });
 test('export verifier is read-only and conflicting links or mismatching export cannot produce verified',async t=>{
  for(const mode of ['mutation','wrong-link','export-false']){
-  const f=fixture(t);const s=f.make({verify:async(client,_file,name,region)=>{if(mode==='mutation')await client.call('sheet_set_range_value',{});if(mode==='wrong-link'){const sheet=f.sheets.find(s=>s.sheet_name===name),l=region.links[0];sheet.cells.find(c=>c.row===l.row&&c.col===l.col).hyperlink={url:'https://wrong.example/'};}return {content:mode!=='export-false',links:true};}}),p=await s.prepare(f.candidate().q);await approve(s,p);await s.idle();assert.equal(s.read(p.id).state,'unknown');assert.equal(f.calls.filter(c=>c.name==='sheet_set_range_value'&&!c.args.values).length,0);
+  const f=fixture(t);let changedLink=false;const s=f.make({verify:async(client,_file,name,region)=>{if(mode==='mutation')await client.call('sheet_set_range_value',{});if(mode==='wrong-link'&&region.links.length){const sheet=f.sheets.find(s=>s.sheet_name===name),l=region.links[0];sheet.cells.find(c=>c.row===l.row&&c.col===l.col).hyperlink={url:'https://wrong.example/'};changedLink=true;}return {content:mode!=='export-false',links:true};}}),p=await s.prepare(f.candidate().q);await approve(s,p);await s.idle();assert.equal(s.read(p.id).state,'unknown');assert.equal(f.calls.filter(c=>c.name==='sheet_set_range_value'&&!c.args.values).length,0);
+  if(mode==='wrong-link')assert.equal(changedLink,true,'must exercise an actual hyperlink conflict, not throw because the main body now has no source links');
  }
 });
 test('explicit read-only prepare can refresh a stale never-written plan after another candidate completes',async t=>{

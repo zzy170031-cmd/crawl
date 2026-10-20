@@ -41,3 +41,10 @@ test('known and unknown exceptions expose only whitelisted codes and fixed safe 
  f.runtime.read=()=>null;const missing=await fetch(f.origin+base+'/'+id);assert.equal(missing.status,404);assert.equal((await missing.json()).code,'CREATIVE_TASK_NOT_FOUND');
  const invalidJSON=await fetch(f.origin+base,{method:'POST',headers:{'x-crawl-token':'session','content-type':'application/json'},body:'{broken'});assert.equal(invalidJSON.status,400);assert.equal((await invalidJSON.json()).code,'CREATIVE_TASK_INPUT');
 });
+test('explicit local A HTTP dispatch accepts ID only and rejects local B or injected paths before runtime',async t=>{
+ const f=await fixture(t),base='/api/creative-candidates',local={...valid,source:{provider:'local_upload',source_id:'local_'+'a'.repeat(64)}};
+ assert.equal((await f.post(base,local)).status,202);assert.deepEqual(f.calls.start,[local]);
+ for(const value of [{...local,mode:'B'},{...local,source:{...local.source,path:'/private/video'}},{...local,source:{...local.source,request_id:valid.source.request_id}}])
+  assert.equal((await f.post(base,value)).status,400);
+ assert.equal(f.calls.start.length,1);
+});

@@ -1,4 +1,4 @@
-// Network-only evidence assembly from already readable server-owned originals.
+// Single-source network or local evidence assembly from already readable server-owned originals.
 // Acquisition, source authenticity and file-byte verification belong to the
 // trusted library/media/reference providers; this builder never fetches media.
 import {createHash} from 'node:crypto';
@@ -8,6 +8,7 @@ import {HOST_LIMITS} from './host-assistant.mjs';
 import {selectStudyRepresentatives} from './study-selection.mjs';
 export const STUDY_PACKET_VERSION='study-packet-network-2';
 const sha=value=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value)).digest('hex');
+export const LOCAL_STUDY_PACKET_VERSION='study-packet-local-1';
 const SHA=/^[a-f0-9]{64}$/,ID=/^\d{10,25}$/;
 const referenceKinds=new Set(['publisher','game-guide','platform-guide','competitor-content','image-page']);
 const fail=code=>{throw Object.assign(Error(code),{code});};
@@ -15,18 +16,20 @@ const stop=signal=>signal?.throwIfAborted();
 const fileKey=f=>JSON.stringify([f?.path,f?.sha256]);
 const validFile=f=>f&&typeof f.path==='string'&&isAbsolute(f.path)&&SHA.test(f.sha256||'');
 function snapshot(library,ctx){
- if(ctx?.learning_source!=='network'||typeof ctx.game!=='string'||!ctx.game.trim()||library?.game!==ctx.game)fail('STUDY_PACKET_SOURCE_INVALID');
+ if(!['network','local'].includes(ctx?.learning_source)||typeof ctx.game!=='string'||!ctx.game.trim()||library?.game!==ctx.game)fail('STUDY_PACKET_SOURCE_INVALID');
+ const local=ctx.learning_source==='local',idPattern=local?/^local_[a-f0-9]{64}$/:ID,provider=local?'local_upload':'redfox';
  const b=library.binding,c=b?.collection;
- if(b?.game!==ctx.game||b.source_provider!=='game_study_library'||!SHA.test(b.library_fingerprint||'')||b.library_id!=='library_'+b.library_fingerprint||c?.source_provider!=='redfox'||!c.collection_request_id||!SHA.test(c.collection_fingerprint||'')||!c.window)fail('STUDY_PACKET_LIBRARY_INVALID');
+ if(b?.game!==ctx.game||b.source_provider!=='game_study_library'||!SHA.test(b.library_fingerprint||'')||b.library_id!=='library_'+b.library_fingerprint||(local?c!==null:c?.source_provider!=='redfox'||!c.collection_request_id||!SHA.test(c.collection_fingerprint||'')||!c.window))fail('STUDY_PACKET_LIBRARY_INVALID');
  if(!Array.isArray(library.records)||!Array.isArray(library.items)||!library.records.length||library.records.length>30||library.items.length!==library.records.length)fail('STUDY_PACKET_LIBRARY_INVALID');
  const items=new Map();
- for(const item of library.items){const id=item?.record?.source_id;if(!ID.test(id||'')||items.has(id))fail('STUDY_PACKET_ITEM_INVALID');items.set(id,item);}
+ for(const item of library.items){const id=item?.record?.source_id;if(!idPattern.test(id||'')||items.has(id))fail('STUDY_PACKET_ITEM_INVALID');items.set(id,item);}
  const seen=new Set();
  for(const row of library.records){
-  if(!row||!ID.test(row.source_id||'')||seen.has(row.source_id)||row.game!==ctx.game||row.provider!=='redfox'||row.kind!=='video'||row.collection_request_id!==c.collection_request_id)fail('STUDY_PACKET_RECORD_INVALID');
+  if(!row||!idPattern.test(row.source_id||'')||seen.has(row.source_id)||row.game!==ctx.game||row.provider!==provider||row.kind!=='video'||row.collection_request_id!==(local?null:c.collection_request_id))fail('STUDY_PACKET_RECORD_INVALID');
   seen.add(row.source_id);const item=items.get(row.source_id);
   if(!item||!Array.isArray(row.origins)||!row.origins.length||sha(item.record)!==sha(row.origins[0])||sha(item.origins)!==sha(row.origins)||item.library_id!==row.library_id||item.availability!==row.availability)fail('STUDY_PACKET_ITEM_INVALID');
-  for(const origin of row.origins)if(origin.game!==ctx.game||origin.provider!=='redfox'||origin.kind!=='video'||origin.collection_request_id!==c.collection_request_id)fail('STUDY_PACKET_RECORD_INVALID');
+  for(const origin of row.origins)if(origin.game!==ctx.game||origin.provider!==provider||origin.kind!=='video'||origin.collection_request_id!==(local?null:c.collection_request_id))fail('STUDY_PACKET_RECORD_INVALID');
+  if(local)for(const r of [row,...row.origins])if(r.source_id!==row.source_id||row.sha256!==row.source_id.slice(6)||['source_url','author','published_at','published_date','publication_date','publication_precision','collected_at','like_count','comment_count','share_count','collect_count'].some(k=>r[k]!==null))fail('STUDY_PACKET_RECORD_INVALID');
   if(row.availability==='available'){
    if(!validFile(item.media)||item.media.sha256!==row.sha256||!Number.isSafeInteger(item.media.size)||item.media.size<1)fail('STUDY_PACKET_MEDIA_INVALID');
   }else if(row.availability!=='unavailable'||item.media!==null||row.sha256!==null)fail('STUDY_PACKET_MEDIA_INVALID');
@@ -37,7 +40,7 @@ function mediaSources(prepared,item,game,read_at){
  if(!prepared||prepared.source_sha256!==item.media.sha256||!Number.isFinite(prepared.duration)||prepared.duration<=0||typeof prepared.has_audio!=='boolean'||!Array.isArray(prepared.frames)||!prepared.frames.length)fail('STUDY_PACKET_MEDIA_INVALID');
  for(const [i,f]of prepared.frames.entries())if(!validFile(f)||!Number.isFinite(f.time)||f.time<0||f.time>prepared.duration||i>0&&f.time<prepared.frames[i-1].time)fail('STUDY_PACKET_FRAME_INVALID');
  const source_id=item.record.source_id,frame=prepared.frames[Math.floor(prepared.frames.length/2)];
- const common={game,source_id,read_at},coverage={builder:STUDY_PACKET_VERSION,source_sha256:prepared.source_sha256,read_at_basis:'packet_preparation_time_not_publication',collection_request_id:item.record.collection_request_id};
+ const common={game,source_id,read_at},coverage={builder:item.record.provider==='local_upload'?LOCAL_STUDY_PACKET_VERSION:STUDY_PACKET_VERSION,source_sha256:prepared.source_sha256,read_at_basis:'packet_preparation_time_not_publication',collection_request_id:item.record.collection_request_id};
  const transcript=prepared.transcript;
  if(prepared.has_audio){
   if(!transcript||transcript.source_id!=='media_'+prepared.source_sha256||!SHA.test(transcript.audio_sha256||'')||!['machine_transcript_pending_review','no_speech_recognized'].includes(transcript.status)||!Array.isArray(transcript.segments))fail('STUDY_PACKET_TRANSCRIPT_INVALID');
@@ -60,7 +63,7 @@ export function createStudyPacketBuilder({prepareMedia,readReferences=async()=>(
   const selection=selectStudyRepresentatives(fixed.records,{limit:representativeLimit});
   const byId=new Map(fixed.records.map(r=>[r.source_id,r]));
   const selected=selection.source_ids.map(id=>byId.get(id));
-  const refs=structuredClone(await readReferences({game:captured.game,learning_source:'network',library_binding:structuredClone(fixed.binding),signal:captured.signal}));
+  const refs=structuredClone(await readReferences({game:captured.game,learning_source:captured.learning_source,library_binding:structuredClone(fixed.binding),signal:captured.signal}));
   stop(captured.signal);
   if(!refs||!Array.isArray(refs.sources)||!Array.isArray(refs.images)||!Array.isArray(refs.files)||refs.sources.some(s=>!s||!referenceKinds.has(s.kind)))fail('STUDY_PACKET_REFERENCE_INVALID');
   if(refs.images.length+selected.length>12||refs.files.length>32)fail('STUDY_PACKET_ATTACHMENT_LIMIT');
@@ -81,7 +84,7 @@ export function createStudyPacketBuilder({prepareMedia,readReferences=async()=>(
    sources.push(...observed);images.push(observed[0].file);representative_samples.push({source_id:row.source_id,evidence_ids:observed.map(s=>s.id)});
   }
   if(!sources.length)fail('STUDY_PACKET_NO_SOURCES');
-  const packet={game:captured.game,learning_source:'network',library:{binding:fixed.binding,records:fixed.records},sources,representative_samples};
+  const packet={game:captured.game,learning_source:captured.learning_source,library:{binding:fixed.binding,records:fixed.records},sources,representative_samples};
   stop(captured.signal);const checked=prepareGameStudy(packet,{images,files:refs.files});
   const input={version:GAME_STUDY_VERSION,packet:checked.packet,comparisonMetrics:calculateComparisonMetrics(checked),evidence_boundary:GAME_STUDY_TRUST};
   // Reserve more than the current Host wrapper overhead; never trim evidence.

@@ -7,6 +7,9 @@ import {HostAssistant} from './host-assistant.mjs';
 import {createCreativeMedia} from './creative-media.mjs';
 import {runCreativeCandidate} from './creative-candidate.mjs';
 import {createCreativeTaskRunner,creativeTaskRequest} from './creative-task.mjs';
+import {validLocalCreativeSource} from './creative-local-source.mjs';
+import {verifyEvidenceFile} from './study-evidence-reader.mjs';
+import {HOST_LIMITS} from './host-assistant.mjs';
 const fail=code=>{throw Object.assign(Error(code),{code});};
 function directory(path){mkdirSync(path,{recursive:true,mode:0o700});const s=lstatSync(path);if(!s.isDirectory()||s.isSymbolicLink())fail('CREATIVE_RUNTIME_PATH');return realpathSync(path);}
 function childDirectory(root,target){const part=relative(root,resolve(target));if(!part||part==='..'||part.startsWith('..'+sep)||isAbsolute(part))fail('CREATIVE_RUNTIME_PATH');let path=root;for(const name of part.split(sep)){path=join(path,name);try{mkdirSync(path,{mode:0o700});}catch(e){if(e.code!=='EEXIST')throw e;}const s=lstatSync(path);if(!s.isDirectory()||s.isSymbolicLink()||realpathSync(path)!==path)fail('CREATIVE_RUNTIME_PATH');}return path;}
@@ -21,23 +24,34 @@ export function createCreativeRuntime({dataRoot,taskDirectory,cliPath,python,whi
  async function capture(request,signal){
   signal?.throwIfAborted();
   const study=await getStudyEvidence({game:request.game,taskId:request.study_task_id,profileVersion:request.profile_version,signal});
-  const source=await getSource({game:request.game,mode:request.mode,request_id:request.source.request_id,source_id:request.source.source_id,signal});
-  if(!source?.row||!source.collection)fail('CREATIVE_SOURCE_REQUIRED');
-  const asset=await assets.read(source.row);signal?.throwIfAborted();
-  if(asset?.provider!=='redfox'||asset.source_id!==request.source.source_id||asset.url!==source.row.source_url||asset.current_collection_request_id!==request.source.request_id||asset.status!=='av_readable')fail('CREATIVE_ORIGINAL_REQUIRED');
-  const media={path:asset.source_path,sha256:asset.source_sha256,size:asset.bytes};
+  const local=request.source.provider==='local_upload';
+  const source=await getSource({game:request.game,mode:request.mode,...request.source,signal});
+  if(!source?.row||source.row.source_id!==request.source.source_id)fail('CREATIVE_SOURCE_REQUIRED');
+  let selected;
+  if(local){
+   if(!validLocalCreativeSource(source,request.game,request.mode))fail('CREATIVE_SOURCE_REQUIRED');
+   const verified=await verifyEvidenceFile(root,source.media,{signal,maxBytes:HOST_LIMITS.source});
+   if(verified.size!==source.media.size)fail('CREATIVE_ORIGINAL_REQUIRED');
+   selected={row:structuredClone(source.row),origin:structuredClone(source.origin),media:structuredClone(source.media)};
+  }else{
+   if(!source.collection)fail('CREATIVE_SOURCE_REQUIRED');
+   const asset=await assets.read(source.row);signal?.throwIfAborted();
+   if(asset?.provider!=='redfox'||asset.source_id!==request.source.source_id||asset.url!==source.row.source_url||asset.current_collection_request_id!==request.source.request_id||asset.status!=='av_readable')fail('CREATIVE_ORIGINAL_REQUIRED');
+   selected={row:structuredClone(source.row),collection:structuredClone(source.collection),media:{path:asset.source_path,sha256:asset.source_sha256,size:asset.bytes}};
+  }
   // Choose only a few images actually cited by background/term observations;
   // omitted images cannot be used through the engine's evidence ID closure.
   const preferred=[...(study.profile?.draft?.background_and_loop||[]),...(study.profile?.draft?.necessary_terms||[]).map(t=>t.explanation)].flatMap(c=>(c?.references||[]).map(r=>r.id));
   const studyImageIds=[...new Set(preferred)].filter(id=>study.packet.sources.some(s=>s.id===id&&s.game===request.game&&s.kind==='video-frame')).slice(0,3);
-  return {game:request.game,mode:request.mode,format:request.format,study,studyImageIds,selected:{row:structuredClone(source.row),collection:structuredClone(source.collection),media}};
+  return {game:request.game,mode:request.mode,format:request.format,study,studyImageIds,selected};
  }
  const runner=createCreativeTaskRunner({db,
   captureInput:async request=>{if(!enabled())fail('CREATIVE_RUNTIME_HELD');dependencies();return capture(request);},
   prepareInput:async(input,ctx)=>{dependencies();input.selected.prepared=await media.prepare({record:input.selected.row,media:input.selected.media},{signal:ctx.signal,stage:ctx.stage});return input;},
   runCandidate:(input,ctx)=>{dependencies();return runCreativeCandidate(input,{host,dataRoot:root,auditDir:join(audits,ctx.taskId),signal:ctx.signal});},
   revalidateInput:async(input,ctx)=>{
-   const request={game:input.game,mode:input.mode,format:input.format,study_task_id:input.study.binding.task_id,profile_version:input.study.binding.profile_version,source:{provider:'redfox',request_id:input.selected.collection.request_id,source_id:input.selected.row.source_id}};
+   const source=input.selected.row.provider==='local_upload'?{provider:'local_upload',source_id:input.selected.row.source_id}:{provider:'redfox',request_id:input.selected.collection.request_id,source_id:input.selected.row.source_id};
+   const request={game:input.game,mode:input.mode,format:input.format,study_task_id:input.study.binding.task_id,profile_version:input.study.binding.profile_version,source};
    return hash(await capture(request,ctx.signal))===hash(input);
   }
  });

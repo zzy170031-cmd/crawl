@@ -4,7 +4,7 @@ import {normalizeLocalGame} from './local-videos.mjs';
 const BASE='/api/creative-candidates',UUID='[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
 const family=path=>path===BASE||path.startsWith(BASE+'/');
 const messages={
- CREATIVE_TASK_INPUT:[400,'请选择目标游戏、固定学习版本、已选视频和创作模式，不接受额外素材或路径。'],
+ CREATIVE_TASK_INPUT:[400,'请选择目标游戏、固定学习版本和视频；A 支持本地上传或已保存作品，B 使用已保存热点。不接受额外素材或路径。'],
  CREATIVE_HTTP_QUERY:[400,'请求包含不支持或重复的参数。'],
  CREATIVE_HTTP_CANCEL:[400,'取消不接受额外参数。'],
  CREATIVE_RUNTIME_HELD:[409,'创作候选入口尚未启用，未启动任务。'],

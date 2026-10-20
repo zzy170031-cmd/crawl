@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {hash} from './tasks.mjs';
 import {normalizeLocalGame} from './local-videos.mjs';
 import {CREATIVE_CANDIDATE_VERSION} from './creative-candidate.mjs';
+import {LOCAL_CREATIVE_ID,validLocalCreativeSource} from './creative-local-source.mjs';
 export const CREATIVE_TASK_PIPELINE=CREATIVE_CANDIDATE_VERSION;
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/,SHA=/^[a-f0-9]{64}$/;
 const fail=code=>{throw Object.assign(Error(code),{code});},clone=x=>structuredClone(x),now=()=>new Date().toISOString();
@@ -14,11 +15,17 @@ const pick=(v,fields)=>Object.fromEntries(fields.filter(k=>v?.[k]!==undefined).m
 export function creativeTaskRequest(value){
  if(!value||Array.isArray(value)||Object.keys(value).sort().join(',')!=='format,game,mode,profile_version,source,study_task_id')fail('CREATIVE_TASK_INPUT');
  const s=value.source;
- if(!s||Array.isArray(s)||Object.keys(s).sort().join(',')!=='provider,request_id,source_id'||s.provider!=='redfox'||!UUID.test(s.request_id)||!/^\d{10,25}$/.test(s.source_id)||!UUID.test(value.study_task_id)||!SHA.test(value.profile_version)||!['A','B'].includes(value.mode)||!['video','image'].includes(value.format))fail('CREATIVE_TASK_INPUT');
+ const local=s?.provider==='local_upload'&&value.mode==='A'&&Object.keys(s).sort().join(',')==='provider,source_id'&&LOCAL_CREATIVE_ID.test(s.source_id);
+ const network=s?.provider==='redfox'&&Object.keys(s).sort().join(',')==='provider,request_id,source_id'&&UUID.test(s.request_id)&&/^\d{10,25}$/.test(s.source_id);
+ if(!s||Array.isArray(s)||!(local||network)||!UUID.test(value.study_task_id)||!SHA.test(value.profile_version)||!['A','B'].includes(value.mode)||!['video','image'].includes(value.format))fail('CREATIVE_TASK_INPUT');
  return {...clone(value),game:normalizeLocalGame(value.game)};
 }
 function payloadFor(captured,request){
  const study=captured?.study,s=captured?.selected;
+ if(request.source.provider==='local_upload'){
+  if(captured?.game!==request.game||captured.mode!==request.mode||captured.format!==request.format||study?.game!==request.game||study.binding?.task_id!==request.study_task_id||study.binding?.profile_version!==request.profile_version||s?.row?.source_id!==request.source.source_id||!validLocalCreativeSource(s,request.game,request.mode))fail('CREATIVE_TASK_CAPTURE');
+  return {...request,creative_pipeline:CREATIVE_TASK_PIPELINE,input_fingerprint:hash(captured),source_fingerprint:s.origin.fingerprint,source_sha256:s.media.sha256};
+ }
  if(captured?.game!==request.game||captured.mode!==request.mode||captured.format!==request.format||study?.game!==request.game||study.binding?.task_id!==request.study_task_id||study.binding?.profile_version!==request.profile_version||s?.row?.provider!=='redfox'||s.row.kind!=='video'||s.row.source_id!==request.source.source_id||s.row.collection_request_id!==request.source.request_id||s.collection?.request_id!==request.source.request_id||!SHA.test(s.collection.fingerprint)||!SHA.test(s.media?.sha256))fail('CREATIVE_TASK_CAPTURE');
  return {...request,creative_pipeline:CREATIVE_TASK_PIPELINE,input_fingerprint:hash(captured),source_fingerprint:s.collection.fingerprint,source_sha256:s.media.sha256};
 }
@@ -37,7 +44,10 @@ function noPrivate(value){
 }
 function project(output,payload){
  const r=output?.receipt,b=output?.binding;
- if(output?.version!==CREATIVE_TASK_PIPELINE||!['needs_input','needs_review'].includes(output.status)||output.accepted!==false||output.ready!==false||output.delivery_enabled!==false||output.plan?.game!==payload.game||b?.game!==payload.game||b.mode!==payload.mode||b.format!==payload.format||b.study_task_id!==payload.study_task_id||b.profile_version!==payload.profile_version||b.collection_request_id!==payload.source.request_id||b.collection_fingerprint!==payload.source_fingerprint||b.source_id!==payload.source.source_id||b.source_sha256!==payload.source_sha256||!SHA.test(b.input_sha256)||!SHA.test(b.attachment_sha256)||r?.provider!=='codex-host'||r.status!=='completed'||r.owned_process_closed!==true||r.exit_code!==0||r.tool_events!==0||r.exec_attempts!==1||r.runner_retries!==0||r.input_sha256!==b.input_sha256||r.creative_version!==CREATIVE_TASK_PIPELINE||hash(r.input_binding)!==hash(b)||!output.draft||hash(output.draft)!==output.draft_sha256)fail('CREATIVE_TASK_OUTPUT');
+ const sourceBound=payload.source.provider==='local_upload'
+  ? b?.source_provider==='local_upload'&&b.local_source_fingerprint===payload.source_fingerprint&&b.collection_request_id===undefined&&b.collection_fingerprint===undefined
+  : b?.collection_request_id===payload.source.request_id&&b.collection_fingerprint===payload.source_fingerprint&&b.source_provider!== 'local_upload';
+ if(output?.version!==CREATIVE_TASK_PIPELINE||!['needs_input','needs_review'].includes(output.status)||output.accepted!==false||output.ready!==false||output.delivery_enabled!==false||output.plan?.game!==payload.game||b?.game!==payload.game||b.mode!==payload.mode||b.format!==payload.format||b.study_task_id!==payload.study_task_id||b.profile_version!==payload.profile_version||!sourceBound||b.source_id!==payload.source.source_id||b.source_sha256!==payload.source_sha256||!SHA.test(b.input_sha256)||!SHA.test(b.attachment_sha256)||r?.provider!=='codex-host'||r.status!=='completed'||r.owned_process_closed!==true||r.exit_code!==0||r.tool_events!==0||r.exec_attempts!==1||r.runner_retries!==0||r.input_sha256!==b.input_sha256||r.creative_version!==CREATIVE_TASK_PIPELINE||hash(r.input_binding)!==hash(b)||!output.draft||hash(output.draft)!==output.draft_sha256)fail('CREATIVE_TASK_OUTPUT');
  const result={...pick(output,['version','status','accepted','ready','delivery_enabled','binding','coverage','source_reading','game_bridge','plan','draft','draft_sha256','boundary']),game:payload.game,mode:payload.mode,format:payload.format};
  noPrivate(result);result.result_version=hash(result);return result;
 }
