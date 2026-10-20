@@ -132,7 +132,7 @@ function imageContainer(bytes){
  fail('HOST_IMAGE_INVALID');
 }
 
-function readBoundFile(item,root,cap,{image=false}={}){
+export function readBoundFile(item,root,cap,{image=false}={}){
  if(!object(item)||typeof item.path!=='string'||!isAbsolute(item.path)||typeof item.sha256!=='string'||!/^[a-f0-9]{64}$/.test(item.sha256))fail('HOST_SOURCE_INVALID');
  const path=resolve(item.path),rel=relative(root,path);
  if(!rel||rel==='..'||rel.startsWith('..'+(process.platform==='win32'?'\\':'/'))||isAbsolute(rel)||lstatSync(path).isSymbolicLink()||realpathSync(path)!==path)fail('HOST_SOURCE_OUTSIDE_ROOT');

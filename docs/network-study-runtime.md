@@ -15,7 +15,7 @@
 
 ## 运行配置与接口
 
-`CRAWL_STUDY_HOST_CLI` 必须指向已安装、兼容 `codex exec` 协议的可执行文件。它使用宿主现有账号和网络，**不是离线模式**；当前没有声明 Qwen、WorkBuddy 支持同一执行协议。此变量不解除服务端门禁。语音使用已有 `CRAWL_PYTHON`、`CRAWL_WHISPER_MODEL`，CPU/INT8，禁止自动下载。无需为这个候选再安装模型。
+默认 `CRAWL_STUDY_HOST_PROVIDER=codex` 时，`CRAWL_STUDY_HOST_CLI` 必须指向兼容 `codex exec` 的可执行文件。WorkBuddy 桌面用户选择 `CRAWL_STUDY_HOST_PROVIDER=workbuddy`，不需 Codex CLI，由正在处理本轮请求的 Skill 使用自己的图文能力领取/回交，见[运行合同](../skills/douyin-hotspot-game-creation/references/workbuddy.md)。两者使用各自助手账号和网络，**不是离线模式**；没有声明 WorkBuddy 与 Codex 执行协议相同。此变量不解除服务端门禁。语音使用已有 `CRAWL_PYTHON`、`CRAWL_WHISPER_MODEL`，CPU/INT8，禁止自动下载。无需为这个候选再安装模型。
 
 - `POST /api/game-study-tasks`：只接受 `{game, learning_source:"network"或"local"}`；固定服务器来源，不接受行、路径或命令。
 - `GET /api/game-study-tasks`、`GET /api/game-study-tasks/:id`：只读任务，带 `task_store:"game-study"`；`resume_required` 表示需显式继续，不代表自动恢复。

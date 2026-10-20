@@ -2,6 +2,7 @@
 // this module performs no acquisition, payment, retries, or production writes.
 import {createHash} from 'node:crypto';
 import {validateHostOutput} from './host-assistant.mjs';
+import {validHostReceipt} from './host-receipt.mjs';
 export const GAME_STUDY_VERSION='game-study-host-candidate-5';
 export const STUDY_DOMAINS=Object.freeze(['background_loop','gameplay_terms','content_types','video_and_image','duration_interaction','platform_requirements','peer_expression']);
 const KINDS=new Set(['publisher','game-guide','platform-guide','competitor-content','video-frame','raw-asr','image-page']);
@@ -243,7 +244,7 @@ export async function runGameStudy(packet,{host,images=[],files=[],auditDir,sign
  stop(signal);if(typeof host?.json!=='function')error('STUDY_HOST_REQUIRED');const prepared=prepareGameStudy(packet,{images,files}),comparisonMetrics=calculateComparisonMetrics(prepared);
  const input={version:GAME_STUDY_VERSION,packet:prepared.packet,comparisonMetrics,evidence_boundary:GAME_STUDY_TRUST};
  const response=await host.json(GAME_STUDY_PROMPT,input,gameStudySchema(prepared.packet.game),{images:prepared.images,sources:prepared.files,auditDir,signal});stop(signal);
- if(!obj(response)||!obj(response.receipt)||response.receipt.provider!=='codex-host'||response.receipt.status!=='completed'||response.receipt.owned_process_closed!==true||response.receipt.tool_events!==0||response.receipt.exec_attempts!==1||response.receipt.runner_retries!==0||response.receipt.input_sha256!==hash(input))error('STUDY_HOST_RECEIPT_INVALID');
+ if(!obj(response)||!validHostReceipt(response.receipt,{inputHash:hash(input),requireExit:false}))error('STUDY_HOST_RECEIPT_INVALID');
  const raw=validateGameStudyDraft(response.value,prepared),coverage=studyCoverage(prepared,comparisonMetrics,raw);
  const interaction_observations=comparisonMetrics.groups.map(g=>({group_id:g.id,description:`${g.type}（${g.classification_status}，${g.relevance}）：${g.sample_count}条同窗口候选。视频时长及赞评分享收藏仅描述已知字段，缺失不补零；无曝光率或因果结论。`,source_ids:g.source_ids}));
  return {draft:{...raw,interaction_observations,accepted:false,status:coverage.status},receipt:{...response.receipt,game_study_version:GAME_STUDY_VERSION,packet_sha256:prepared.packet_sha256,file_binding_sha256:prepared.file_binding_sha256,source_derivation_verified:false,publisher_authenticity_verified:false,semantic_acceptance:false},coverage,version:GAME_STUDY_VERSION,comparisonMetrics};

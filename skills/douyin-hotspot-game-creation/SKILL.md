@@ -20,6 +20,8 @@ description: 学习目标游戏及相关视频的内容语境、常见类型与�
 - **右侧浏览器助手模式（用户明确使用时）**：通过 `mcp__cua_repl` 的内置浏览器完成热点宝登录、榜单筛选和实际视频读取，再使用本机模型及已连接的腾讯文档 MCP。用户要求“右侧”“内置浏览器”时必须使用此模式。先读[右侧浏览器流程](references/side-browser.md)。不要求启动独立 Chrome，不将 CDP 19327 不可用当成本模式失败。
 - **独立网页后台模式**：配套 crawl 本地服务，设置 `CRAWL_HOME` 为仓库绝对路径并执行 `npm start`。通过 `npm run task -- ...` 调用与网页相同的执行器；运行合同见[执行接口](references/runtime.md)。该后台的独立 Chrome 会话与右侧会话不共享，不能声称右侧登录已经使后台采集就绪。
 
+WorkBuddy 桌面版读取[WorkBuddy 协作合同](references/workbuddy.md)，以 `CRAWL_STUDY_HOST_PROVIDER=workbuddy` 接续本轮显式任务，无需 Codex CLI；必须保持正在处理的助手会话，不能承诺网页点击后无人值守。按请求绑定回交候选，不直接修改任务产物来绕过校验。
+
 首次安装先读[账号、模型与跨助手安装](references/installation.md)。支持 macOS 与 Windows；安装时读取 `$CRAWL_HOME/README.md`，Windows 另读 `$CRAWL_HOME/docs/install-windows.md`。按操作系统选择 Python 路径；模型与服务部署在同一设备，不把另一台设备已有模型视为本机可用。
 
 按当前模式检查实际依赖：红狐采集检查服务与API配置，分析检查原片、兼容宿主及本地语音依赖，交付才检查腾讯目标；浏览器来源模式再检查相应会话/CDP。用户已配置的依赖不重复安装，不自动下载模型。能力不满足时报告具体缺口和可恢复步骤，不以完成口吻输出空模板。当前候选入口复用兼容的既有宿主图文能力及本地多语言 Small；Ollama Qwen3-VL 属于仍暂停的旧实验路径，不要求继续下载。安装存在不是效果验收。

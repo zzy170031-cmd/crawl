@@ -4,6 +4,7 @@ import {hash} from './tasks.mjs';
 import {normalizeLocalGame} from './local-videos.mjs';
 import {GAME_STUDY_VERSION,gameStudySchema} from './game-study.mjs';
 import {validateHostOutput} from './host-assistant.mjs';
+import {validHostReceipt} from './host-receipt.mjs';
 export const STUDY_TASK_PIPELINE=GAME_STUDY_VERSION;
 const PROGRESS_STAGES=new Set(['核验固定学习来源','读取实际视频并提取3张代表画面','使用已有本地Small模型转写语音（CPU/INT8）','一次归纳执行中']);
 const keys=id=>({input:`study-task:${id}:input`,started:`study-task:${id}:inference-started`,output:`study-task:${id}:output`,result:`study-task:${id}:public-result`});
@@ -29,7 +30,7 @@ function checkPublic(value){
 }
 function completeOutput(output){
  const receipt=output?.receipt;
- if(!output||output.version!==GAME_STUDY_VERSION||receipt?.provider!=='codex-host'||receipt.status!=='completed'||receipt.owned_process_closed!==true||receipt.tool_events!==0||receipt.exec_attempts!==1||receipt.runner_retries!==0||receipt.game_study_version!==GAME_STUDY_VERSION)fail('STUDY_TASK_RECEIPT_INVALID');
+ if(!output||output.version!==GAME_STUDY_VERSION||!validHostReceipt(receipt,{requireExit:false})||receipt.game_study_version!==GAME_STUDY_VERSION)fail('STUDY_TASK_RECEIPT_INVALID');
 }
 function projectOutput(output,library,payload){
  completeOutput(output);

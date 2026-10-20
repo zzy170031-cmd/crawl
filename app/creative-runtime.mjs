@@ -4,6 +4,7 @@ import {mkdirSync,lstatSync,realpathSync,existsSync,accessSync,constants} from '
 import {resolve,join,isAbsolute,relative,sep} from 'node:path';
 import {Tasks,hash} from './tasks.mjs';
 import {HostAssistant} from './host-assistant.mjs';
+import {WorkbuddyHost} from './workbuddy-host.mjs';
 import {createCreativeMedia} from './creative-media.mjs';
 import {runCreativeCandidate} from './creative-candidate.mjs';
 import {createCreativeTaskRunner,creativeTaskRequest} from './creative-task.mjs';
@@ -13,13 +14,13 @@ import {HOST_LIMITS} from './host-assistant.mjs';
 const fail=code=>{throw Object.assign(Error(code),{code});};
 function directory(path){mkdirSync(path,{recursive:true,mode:0o700});const s=lstatSync(path);if(!s.isDirectory()||s.isSymbolicLink())fail('CREATIVE_RUNTIME_PATH');return realpathSync(path);}
 function childDirectory(root,target){const part=relative(root,resolve(target));if(!part||part==='..'||part.startsWith('..'+sep)||isAbsolute(part))fail('CREATIVE_RUNTIME_PATH');let path=root;for(const name of part.split(sep)){path=join(path,name);try{mkdirSync(path,{mode:0o700});}catch(e){if(e.code!=='EEXIST')throw e;}const s=lstatSync(path);if(!s.isDirectory()||s.isSymbolicLink()||realpathSync(path)!==path)fail('CREATIVE_RUNTIME_PATH');}return path;}
-export function createCreativeRuntime({dataRoot,taskDirectory,cliPath,python,whisperModel,isEnabled,getStudyEvidence,getSource,assets,hostFactory=options=>new HostAssistant(options),mediaFactory=createCreativeMedia}={}){
+export function createCreativeRuntime({dataRoot,taskDirectory,cliPath,hostProvider='codex',python,whisperModel,isEnabled,getStudyEvidence,getSource,assets,hostFactory=options=>hostProvider==='workbuddy'?new WorkbuddyHost(options):new HostAssistant(options),mediaFactory=createCreativeMedia}={}){
  if(typeof dataRoot!=='string'||!isAbsolute(dataRoot)||[isEnabled,getStudyEvidence,getSource,hostFactory,mediaFactory].some(f=>typeof f!=='function')||typeof assets?.read!=='function')fail('CREATIVE_RUNTIME_CONFIG');
  const root=directory(resolve(dataRoot)),folder=childDirectory(root,taskDirectory??join(root,'creative-candidate-tasks')),audits=childDirectory(root,join(folder,'audits'));
  for(const suffix of ['','-wal','-shm']){const p=join(folder,'tasks.sqlite'+suffix);if(existsSync(p)&&(lstatSync(p).isSymbolicLink()||!lstatSync(p).isFile()||realpathSync(p)!==p))fail('CREATIVE_RUNTIME_PATH');}
  const db=new Tasks(folder),queue=[],queued=new Set();let creationTail=Promise.resolve(),draining=null,activeId=null,stopped=false,closing,host,media;
  const enabled=()=>!stopped&&isEnabled()===true;
- const configured=()=>{try{if(stopped||typeof cliPath!=='string'||!isAbsolute(cliPath)||/[\r\n\0]/.test(cliPath)||/\.(bat|cmd)$/i.test(cliPath)||typeof python!=='string'||!python.trim())return false;const s=lstatSync(cliPath);if(!s.isFile()||s.isSymbolicLink())return false;accessSync(cliPath,process.platform==='win32'?constants.R_OK:constants.R_OK|constants.X_OK);return true;}catch{return false;}};
+ const configured=()=>{try{if(stopped||!['codex','workbuddy'].includes(hostProvider)||typeof python!=='string'||!python.trim())return false;if(hostProvider==='workbuddy')return true;if(typeof cliPath!=='string'||!isAbsolute(cliPath)||/[\r\n\0]/.test(cliPath)||/\.(bat|cmd)$/i.test(cliPath)||typeof python!=='string'||!python.trim())return false;const s=lstatSync(cliPath);if(!s.isFile()||s.isSymbolicLink())return false;accessSync(cliPath,process.platform==='win32'?constants.R_OK:constants.R_OK|constants.X_OK);return true;}catch{return false;}};
  function dependencies(){if(!configured())fail('CREATIVE_HOST_CONFIGURATION_REQUIRED');try{host??=hostFactory({cliPath,allowedSourceRoot:root});media??=mediaFactory({dataRoot:root,python,whisperModel});if(typeof host?.json!=='function'||typeof media?.prepare!=='function')fail('CREATIVE_HOST_CONFIGURATION_REQUIRED');}catch{fail('CREATIVE_HOST_CONFIGURATION_REQUIRED');}}
  async function capture(request,signal){
   signal?.throwIfAborted();

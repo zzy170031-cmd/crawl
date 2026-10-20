@@ -36,12 +36,14 @@
 | [Node.js](https://nodejs.org/en/download) 24+、[Git](https://git-scm.com/downloads) | 本机服务、SQLite、安装代码 |
 | [Python](https://www.python.org/downloads/) 3.11 / 3.12 | 多语言语音转写；独立虚拟环境 |
 | [FFmpeg / ffprobe](https://ffmpeg.org/download.html) | 下载后检验音视频、提帧与提取音轨；两个命令都要在 PATH |
-| 兼容的既有宿主 CLI | 当前自动联网认知与创作使用已测试的 `codex exec` 协议；配置 `CRAWL_STUDY_HOST_CLI`，需本人账号与网络 |
+| 既有助手的图文能力 | Codex 可配置 `CRAWL_STUDY_HOST_CLI`；WorkBuddy 桌面版可用本仓库 Skill 协作模式，无需安装 Codex，需本人助手账号与网络 |
 | [Ollama](https://ollama.com/download) 0.12.7+（可选） | 仅旧本机视觉实验路径；该路径仍暂停，不是新候选入口的必装依赖 |
 | 自己的红狐账号及 API Key | 付费查询和原片解析 |
 | 自己的腾讯文档 MCP 授权及目标在线表格 | 交付时需要；链接本身不是写入授权 |
 
-红狐模式无需预先登录抖音、热点宝，也不要求 Chrome/CDP。只采集列表不需要模型；原片预处理需要 FFmpeg。当前新候选入口由兼容宿主读取图文并归纳，语音使用本地多语言 Small，不必再下载 Qwen 视觉权重。Qwen Code、WorkBuddy 能安装 Skill 不代表其 CLI 已适配这一后台执行协议。
+红狐模式无需预先登录抖音、热点宝，也不要求 Chrome/CDP。只采集列表不需要模型；原片预处理需要 FFmpeg。当前新候选入口由兼容宿主读取图文并归纳，语音使用本地多语言 Small，不必再下载 Qwen 视觉权重。WorkBuddy 使用 [Skill 协作模式](docs/assistant-installation.md#workbuddy-桌面版)，不依赖 `codex exec`；Qwen Code 的后台协议尚未适配。
+
+WorkBuddy 桌面用户入口：[下载安装技能包](https://github.com/zzy170031-cmd/crawl/raw/refs/heads/main/dist/douyin-hotspot-game-creation-workbuddy.zip) · [安装与使用步骤](docs/assistant-installation.md#workbuddy-桌面版) · [模型清单](skills/douyin-hotspot-game-creation/references/workbuddy.md#模型需求workbuddy-模式) · [已测试范围与待验收项](docs/workbuddy-support.md)。此包为开发预览，完整服务仍需下载本仓库。
 
 ## 2. 克隆与初始化（macOS）
 
@@ -55,6 +57,8 @@ node scripts/setup.mjs
 ```
 
 `setup` 只在缺失时创建 `.env`，填入当前仓库的 Python/模型路径并创建本机数据目录；不覆盖已有配置、不安装依赖、不下载模型、不读取旧密钥。迁移目录后自行核对路径。使用 Homebrew 的 macOS 用户可显式执行 `brew install ffmpeg`，或按 FFmpeg 官网选择适配本机架构的发行包。
+
+WorkBuddy 用户将初始化命令改为 `node scripts/setup.mjs --host=workbuddy`，并按 [WorkBuddy 安装与协作](docs/assistant-installation.md#workbuddy-桌面版) 继续。该参数仅在首次创建 `.env` 时生效；已有配置完整保留，需本人将 `CRAWL_STUDY_HOST_PROVIDER` 改为 `workbuddy` 后重启服务。
 
 Windows 用户按 [Windows 安装说明](docs/install-windows.md) 使用 PowerShell 命令。
 
@@ -70,8 +74,10 @@ Windows 用户按 [Windows 安装说明](docs/install-windows.md) 使用 PowerSh
 
 | 模型 | 标识、下载量与用途 |
 | --- | --- |
-| [Qwen3-VL 8B Instruct](https://ollama.com/library/qwen3-vl:8b-instruct) | 可选旧实验路径：`qwen3-vl:8b-instruct`，Q4_K_M，约 6.1 GB；已有者可保留，新候选入口不调用它，不必新下载 |
-| [Faster Whisper Small 多语言版](https://huggingface.co/Systran/faster-whisper-small) | `Systran/faster-whisper-small`，新入口含语音素材所需：权重约 484 MB；CPU / INT8 转写中文与时间戳，不能用 `small.en` 替代 |
+| [Faster Whisper Small 多语言版](https://huggingface.co/Systran/faster-whisper-small) | 含语音视频分析需要；权重约484MB，CPU/INT8，中文对白与时间戳，不能用 `small.en` 或 `.pt` 替代；已有兼容目录可复用 |
+| WorkBuddy 自身图文能力 | WorkBuddy 模式的读图、游戏认知与创作候选使用用户的助手账号及网络，不需另下视觉/文本权重；客户端需支持实际看图 |
+
+**WorkBuddy 模式不必安装 Ollama 或任何 Qwen 模型。**红狐查询列表及腾讯写入也不需要额外模型。完整需求与 Small 下载方法已随 Skill 提供，见 [WorkBuddy 模型清单](skills/douyin-hotspot-game-creation/references/workbuddy.md#模型需求workbuddy-模式)。旧 Qwen3-VL Instruct（约6.1GB）只供已暂停的历史实验保留，不能当作当前必装依赖。
 
 以下命令会真实下载模型，仅在尚未安装时执行。Ollama 权重默认保存在其自己的模型目录；Whisper 下载到本仓库 `models/`。运行数据和视频还需要额外磁盘空间，权重大小不是推理内存需求。
 
@@ -87,7 +93,7 @@ Windows 用户按 [Windows 安装说明](docs/install-windows.md) 使用 PowerSh
 
 不要为运行创作台追加下载此前实验中的 `qwen3.5:9b-q8_0`、`qwen3.5:27b-q4_K_M` 或思考版 `qwen3-vl:8b`。这些实验没有通过对应的内容质量或本机资源验收；本设备已按用户要求移除这三套权重，保留当前配置使用的 Instruct 与多语言 Whisper。历史实验身份和失败记录保留，不能据此声称这些实验模型仍已安装。
 
-`app/host-assistant.mjs` 复用已有助手图文能力，使用宿主现有账号与额度，不是离线推理，也不自动安装助手或模型。独立联网任务现用于有限游戏认知候选，不走旧 worker；不代表已替代全部本地分析，也不能承诺所有助手支持同一执行协议。学习、创作与腾讯交付分别验收，不能通过改模型配置解除门禁。接口和依赖见[联网学习任务说明](docs/network-study-runtime.md)，真实测试范围见[10月20日实测记录](docs/game-learning-acceptance-20261020.md)。本地分支与人工修订交付、自动稿未通过的限制见[本地实测记录](docs/local-study-acceptance-20261020.md)。
+Codex 路径由 `app/host-assistant.mjs` 调用已有兼容 CLI；WorkBuddy 路径由 `app/workbuddy-host.mjs` 将有期限的请求交给正在处理本轮任务的 WorkBuddy Skill。两者都复用已有助手图文能力，使用宿主现有账号与额度，不是离线推理，也不自动安装助手或模型。WorkBuddy 会话须保持开启并明确接续学习或创作请求，单独点击网页后关闭助手不会无人值守完成。独立联网任务现用于有限游戏认知候选，不走旧 worker；不代表已替代全部本地分析，也不能承诺所有助手支持同一执行协议。学习、创作与腾讯交付分别验收，不能通过改模型配置解除门禁。接口和依赖见[联网学习任务说明](docs/network-study-runtime.md)，真实测试范围见[10月20日实测记录](docs/game-learning-acceptance-20261020.md)。本地分支与人工修订交付、自动稿未通过的限制见[本地实测记录](docs/local-study-acceptance-20261020.md)。
 
 ## 5. 启动、诊断与腾讯授权
 
@@ -120,7 +126,7 @@ npm run doctor -- --layer=analysis --probe
 
 ## 7. 安装 Skill、维护与验收
 
-[Codex / Qwen Code / WorkBuddy 安装说明](docs/assistant-installation.md) 包含官方入口和不依赖自动发现的通用后备方式。安装 Skill 不会安装应用依赖、模型或授权。
+[Codex / Qwen Code / WorkBuddy 安装说明](docs/assistant-installation.md) 包含官方入口和不依赖自动发现的通用后备方式。WorkBuddy 自定义技能包为 `dist/douyin-hotspot-game-creation-workbuddy.zip`，只包含 Skill 及配套说明，仍须克隆完整仓库安装服务。安装 Skill 不会安装应用依赖、模型或授权。
 
 ```sh
 npm run task -- list
@@ -129,4 +135,4 @@ npm test
 npm run check
 ```
 
-`data/`、`.env`、模型、媒体、登录资料、解析回执和用户表格目的地均保留本机并被 Git 忽略。分享仓库代码，不分享自己的运行目录。配置与失败恢复见 [运行说明](docs/runtime.md)，本轮干净安装与发布边界见[开发版本核验](docs/portable-development-20261019.md)。跨系统命令已提供；本轮未完成 Windows、Qwen Code、WorkBuddy 的真实整链验收，不能视为已经通过。
+`data/`、`.env`、模型、媒体、登录资料、解析回执和用户表格目的地均保留本机并被 Git 忽略。分享仓库代码，不分享自己的运行目录。配置与失败恢复见 [运行说明](docs/runtime.md)，本轮干净安装与发布边界见[开发版本核验](docs/portable-development-20261019.md)。跨系统命令已提供；WorkBuddy 已提供有期限请求、绑定响应及取消保护的本机协作适配；本设备未安装 WorkBuddy，尚未完成其真实客户端导入、图文读取到腾讯交付的整链验收。Windows、Qwen Code 的真实整链验收也未完成，不能以协议或受控测试通过代替。

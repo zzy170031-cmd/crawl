@@ -15,15 +15,15 @@
 | `qwen3-vl:8b-instruct`（旧实验可选） | [Ollama 官方模型页](https://ollama.com/library/qwen3-vl:8b-instruct) | Q4_K_M，约6.1GB；旧本机视觉实验路径。当前新候选使用既有兼容宿主，不调用该权重，新用户不必下载。 |
 | `Systran/faster-whisper-small` | [Hugging Face 模型仓库](https://huggingface.co/Systran/faster-whisper-small) | 多语言 CTranslate2 权重约484MB；CPU/INT8。不要用 `small.en` 或 `.pt` 替代。 |
 
-新候选需要已有兼容 `codex exec` 的宿主 CLI、本人账号与网络，设置 `CRAWL_STUDY_HOST_CLI`；没有兼容执行器时只使用采集，不应反复下载模型试图解除门禁。仅用户选择旧实验路径并明确同意后才执行 `ollama pull qwen3-vl:8b-instruct`。Whisper 使用仓库虚拟环境执行 `snapshot_download(repo_id='Systran/faster-whisper-small', local_dir='models/faster-whisper-small')`；完整可复制命令见 README。旧 `qwen3-vl:8b` 可选保留，不要求新用户下载两份。权重大小不等于运行内存，还需视频/帧/音轨磁盘空间。运行时不隐式下载模型。
+新候选可使用既有兼容 `codex exec` 的宿主 CLI（设置 `CRAWL_STUDY_HOST_CLI`），或 WorkBuddy 桌面 Skill 协作模式（设置 `CRAWL_STUDY_HOST_PROVIDER=workbuddy`），都需本人助手账号与网络。WorkBuddy 无需安装 Codex，需在当前会话明确处理本轮有期限请求；协议见[WorkBuddy协作](workbuddy.md)。没有可用图文助手时只使用采集，不应反复下载模型试图解除门禁。仅用户选择旧实验路径并明确同意后才执行 `ollama pull qwen3-vl:8b-instruct`。Whisper 使用仓库虚拟环境执行 `snapshot_download(repo_id='Systran/faster-whisper-small', local_dir='models/faster-whisper-small')`；完整可复制命令见 README。旧 `qwen3-vl:8b` 可选保留，不要求新用户下载两份。权重大小不等于运行内存，还需视频/帧/音轨磁盘空间。运行时不隐式下载模型。
 
-本机需要 Node.js 24+、Python 3.11/3.12、FFmpeg/ffprobe、requirements-media.txt 中的依赖。先 `npm ci`、创建Python虚拟环境并安装依赖，再 `npm run setup`、填写本人配置、`npm start`。setup不覆盖已有.env。红狐列表查询不需要模型或Chrome登录；新入口的语音素材需要多语言 Small，视觉与文本归纳走既有兼容宿主。Ollama 只属可选旧实验配置。
+本机需要 Node.js 24+、Python 3.11/3.12、FFmpeg/ffprobe、requirements-media.txt 中的依赖。先 `npm ci`、创建Python虚拟环境并安装依赖，再 `npm run setup`、填写本人配置、`npm start`。WorkBuddy 首次使用 `node scripts/setup.mjs --host=workbuddy`；setup不覆盖已有.env，已有安装由本人在本机编辑器设置 `CRAWL_STUDY_HOST_PROVIDER=workbuddy` 后重启。红狐列表查询不需要模型或Chrome登录；新入口的语音素材需要多语言 Small，视觉与文本归纳走既有兼容宿主。Ollama 只属可选旧实验配置。
 
 ## 不同助手
 
 - Codex：按[官方技能说明](https://learn.chatgpt.com/docs/build-skills)安装完整Skill文件夹；可使用内置skill-installer指定本仓库及skills/douyin-hotspot-game-creation路径。
 - Qwen Code：按[官方说明](https://qwenlm.github.io/qwen-code-docs/zh/users/features/skills/)放入项目 `.qwen/skills/`，用 `/skills` 检查。
-- WorkBuddy：按[官方技能界面说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market)使用“添加技能→上传技能”，只打包Skill目录，不包含.env/data/models。
+- WorkBuddy：按[官方技能界面说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market)使用“添加技能→上传技能”，上传仓库 `dist/douyin-hotspot-game-creation-workbuddy.zip`；包只含Skill目录，不包含.env/data/models。完整应用仍须下载，先读[WorkBuddy协作](workbuddy.md)。
 - 通用后备：让具备本机文件与终端权限的助手读取此Skill并在crawl仓库运行CLI。设置 `CRAWL_HOME` 为该机器仓库绝对路径；不要依赖开发者路径。云端助手的localhost无法直接访问用户电脑。
 
-这些是 Skill 安装入口，不代表它们具有相同后台执行协议；当前自动候选路径只验证了兼容的 Codex CLI，本轮未完成 Qwen Code、WorkBuddy 或 Windows 的整链实测。`doctor`仅证明其实际检查范围；完整交付仍需原片学习、选题拆解与腾讯回读验收。
+这些是 Skill 安装入口，不代表它们具有相同后台执行协议。WorkBuddy 已有独立的请求/响应协作适配，不能当作兼容 Codex CLI；本设备未安装 WorkBuddy，尚未完成其客户端真实整链验收。Qwen Code、Windows 的整链实测也未完成。`doctor`仅证明其实际检查范围；完整交付仍需原片学习、选题拆解与腾讯回读验收。

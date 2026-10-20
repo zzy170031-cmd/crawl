@@ -45,6 +45,7 @@ export const config = {
   python:
     process.env.CRAWL_PYTHON ||
     (process.platform === "win32" ? "python" : "python3"),
+  studyHostProvider:process.env.CRAWL_STUDY_HOST_PROVIDER||'codex',
   studyHostCLI:process.env.CRAWL_STUDY_HOST_CLI||null,
   whisperModel:process.env.CRAWL_WHISPER_MODEL||null,
 };

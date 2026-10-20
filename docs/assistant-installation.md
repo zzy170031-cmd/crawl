@@ -1,8 +1,8 @@
 # Codex、Qwen Code 与 WorkBuddy 安装入口
 
-官方入口核对日期：2026-10-19。三种助手都使用本仓库 `skills/douyin-hotspot-game-creation/SKILL.md` 及其配套文件，后端接口不变。下面是安装方法；不表示本轮已在三个宿主分别完成真实模型与腾讯交付验收。
+官方入口核对日期：2026-10-20。三种助手都使用本仓库 `skills/douyin-hotspot-game-creation/SKILL.md` 及其配套文件，后端接口不变。下面是安装方法；不表示本轮已在三个宿主分别完成真实模型与腾讯交付验收。
 
-先按 [README](../README.md) 安装本机 Node/Python/FFmpeg；新候选入口使用既有兼容宿主 CLI 与本地多语言 Small，Ollama/Qwen 权重为旧实验可选配置，配置本人的红狐 API Key，再启动 `npm start`。助手须有本机文件及终端权限，能访问这个后端的 localhost；云端助手的 localhost 不会自动连接到你的电脑。安装 Skill 本身不会下载模型，也不会带入任何人的密钥或腾讯权限。
+先按 [README](../README.md) 安装本机 Node/Python/FFmpeg；新候选入口使用既有助手图文能力（兼容 Codex CLI 或 WorkBuddy Skill 协作模式）与本地多语言 Small，Ollama/Qwen 权重为旧实验可选配置，配置本人的红狐 API Key，再启动 `npm start`。助手须有本机文件及终端权限，能访问这个后端的 localhost；云端助手的 localhost 不会自动连接到你的电脑。安装 Skill 本身不会下载模型，也不会带入任何人的密钥或腾讯权限。
 
 ## Codex
 
@@ -26,17 +26,35 @@ Qwen Code 的 Skill 安装不代表它支持当前 `codex exec` 后台协议。�
 
 ## WorkBuddy 桌面版
 
-使用 [WorkBuddy 官方“技能”说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market) 中的界面导入方式，不假定它使用 CodeBuddy CLI 的技能目录。
+使用 [WorkBuddy 官方“技能”说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market) 的自定义技能上传入口，不假定它使用 CodeBuddy CLI 的技能目录。此模式不需要安装 Codex 或新视觉/文本模型；WorkBuddy 用自己的图文能力处理本机有期限请求，语音转写仍用本地多语言 Small。
 
-1. 仅将仓库 `skills/douyin-hotspot-game-creation/` 打成技能压缩包；不要压缩整个仓库、`.env`、`data/` 或 `models/`。例如已完成 setup 后，在仓库运行下面命令（Windows 将 Python 路径替换为 `.venv\Scripts\python.exe`）：
+1. 下载本仓库的 `dist/douyin-hotspot-game-creation-workbuddy.zip`。它只包含完整 Skill 文件夹与配套说明，不含完整应用、密钥、用户素材或模型。
+2. WorkBuddy 左侧“专家·技能·连接器” → “技能” → “添加技能” → “上传技能”，选择该压缩包，在“已安装”中确认启用。对话安装只针对其市场技能，本仓库使用自定义上传入口。
+3. 将完整 [crawl 仓库](https://github.com/zzy170031-cmd/crawl) 克隆或解压到本机，并在 WorkBuddy 选择此目录为工作目录。按 README 安装 Node.js 24+、Python 3.11/3.12、FFmpeg/ffprobe、Python 依赖及多语言 Small（约484MB）；已有兼容依赖可复用，不重复下载。
+4. 首次初始化运行 `node scripts/setup.mjs --host=workbuddy`，它仅在 `.env` 不存在时创建配置。已有 `.env` 不会被覆盖；请本人在本机编辑器将 `CRAWL_STUDY_HOST_PROVIDER=workbuddy`，保留其他配置后重启服务。不要将 `CRAWL_STUDY_HOST_CLI` 当作 WorkBuddy 路径，此模式不调用它。
+5. 用本机设置界面或编辑器配置本人红狐 API 和腾讯授权；助手不读取、打印 `.env`、Token 或 Key。用 `npm run doctor -- --layer=host` 检查宿主与语音依赖（不要求Ollama视觉模型），再运行 `npm start`，打开它显示的 localhost 地址，不能直接双击 `index.html`。
+6. 在网页完成一次明确批准的查询及原片预算，启动学习或创作时，回 WorkBuddy 明确请求处理本轮任务。助手按 [WorkBuddy 运行合同](../skills/douyin-hotspot-game-creation/references/workbuddy.md) 读取请求、实际画面和转写，回交符合 schema 的候选。它必须保持本轮会话运行；网页点击后关闭 WorkBuddy 不会无人值守完成。
 
-   ```sh
-   .venv/bin/python -c "import shutil; shutil.make_archive('data/douyin-hotspot-game-creation', 'zip', 'skills', 'douyin-hotspot-game-creation')"
-   ```
+可复制这段首次初始化提示，先将路径替换为自己的绝对路径：
 
-2. WorkBuddy 左侧“专家·技能·连接器” → “技能” → “添加技能” → “上传技能”，选择生成的 `data/douyin-hotspot-game-creation.zip`。
-3. 在“已安装”中确认启用。选择本机仓库作为工作目录，并说明服务地址。对话安装仅针对其技能市场中的技能；本仓库自定义包用上传入口。
-4. 若该客户端版本拒绝包格式或不能运行本机命令，保留明确的限制，使用下面的手动后备；不能宣称已经安装成功。手机/云模式不纳入本机工作流验收。
+> 使用已安装的 douyin-hotspot-game-creation Skill，为我配置 WorkBuddy 版创作台。仓库目录是「我的绝对路径/crawl」；若目录不存在，先从 https://github.com/zzy170031-cmd/crawl 克隆到我指定的位置。先读取 README、Skill 和 references/workbuddy.md，检查 Node/Python/FFmpeg 与语音模型是否已有，再安装缺少的依赖并用 node scripts/setup.mjs --host=workbuddy 初始化；已有配置保留，不读出凭据，不自动下载新模型。需要 Small 时先告知大小与官方来源，由我确认下载。告诉我如何在本机填写自己的红狐 API、腾讯 MCP Token 和表格链接，再启动创作台。先不调用收费搜索、不写腾讯。后续我明确要求处理学习或创作时，用 npm run workbuddy 的请求/响应协议在当前会话接续，不启动 Codex。
+
+服务运行后可复制日常接续提示：
+
+> 请处理我这次在创作台明确启动的学习或创作任务，按 references/workbuddy.md 逐个领取本轮请求、查看实际图片并提交候选；不要追加收费查询或原片解析，不写腾讯。若没有待办，最多等待45秒后告诉我；已取消或过期的任务不重建、不重试。候选完成后先让我审阅。
+
+命令速查（在仓库目录运行；Windows 使用 `npm.cmd`）：
+
+```sh
+npm run workbuddy -- list
+npm run workbuddy -- wait 45
+npm run workbuddy -- request KIND UUID
+npm run workbuddy -- submit KIND UUID RESPONSE.json
+```
+
+`KIND` 只允许请求列表实际返回的 `game-study-tasks` 或 `creative-candidate-tasks`，`UUID` 使用同条记录的 `id`。响应文件恰好包含 `nonce`、`request_sha256`、`input_sha256`、`value` 四个字段，前三项原样取自该请求，`value` 满足返回的 schema；不凭空生成绑定值。每个请求最多等待10分钟，超时、取消或已提交就停止，不能回填旧请求或无限轮询。提交通过结构校验不表示内容质量通过，仍需审阅后确认腾讯目标与写入。
+
+本设备未安装 WorkBuddy，因此不能声称已在真实客户端完成导入、帧读取或腾讯交付。若客户端拒绝包、无本机终端权限或无法读取图片，报告缺口，不以文字猜图、不静默回退 Codex、也不声称任务完成；手机/云模式不纳入本机工作流验收。
 
 ## 共用的运行路径与后备方式
 

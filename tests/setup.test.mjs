@@ -53,3 +53,10 @@ test('analysis probe is opt-in and missing model is reported independently', asy
   const report=await runDoctor({layer:'analysis', checks});
   assert.deepEqual(called,['ffmpeg','model','asr']);assert.equal(report.layers.analysis.model.status,'failed');assert.equal(report.layers.analysis.asr.status,'ok');
 });
+
+test('WorkBuddy setup only selects provider for new configs and preserves existing credentials',async t=>{
+ const root=await sandbox(t);await setup({root,hostProvider:'workbuddy'});const path=join(root,'.env'),before=await readFile(path,'utf8');assert.match(before,/^CRAWL_STUDY_HOST_PROVIDER=workbuddy$/m);await setup({root,hostProvider:'codex'});assert.equal(await readFile(path,'utf8'),before);
+});
+test('host doctor checks the new assistant path without invoking legacy Ollama or paid services',async()=>{
+ const calls=[];const checks=Object.fromEntries(['host','ffmpeg','asr','model','redfox','tencent','browser'].map(name=>[name,async()=>{calls.push(name);return {configured:true,execution_verified:false};}]));const report=await runDoctor({layer:'host',checks});assert.equal(report.ok,true);assert.deepEqual(calls,['host','ffmpeg','asr']);assert.equal(report.layers.host.host.result.execution_verified,false);
+});

@@ -35,7 +35,7 @@ JSON文件仅存本机数据目录，用于以下命令：
 
 能力接口 `GET /api/quality-policy` 中的 `capabilities.study.enabled/configured` 均为true时，所选来源按钮启动 `POST /api/game-study-tasks`，只提交 `{game,learning_source:"network"或"local"}`。联网仅使用当前成功查询和已有原片，本地仅使用本游戏上传库，不要求红狐配置，不自动补采；按元数据差异选最多8条代表，准备少量实际画面和完整自动ASR，一次归纳后保存候选。`GET /api/game-study-profile?game=...&learning_source=network或local` 按来源读取，`GET /api/game-study-tasks/:id` 读取进度，`POST /api/game-study-tasks/:id/cancel` 显式停止。未启动遗留任务须显式继续，GET、轮询和重启不自动推理或收费。
 
-配置 `CRAWL_STUDY_HOST_CLI` 为已安装且兼容Codex exec协议的绝对可执行路径；使用宿主现有账号和网络，不是离线，不自动安装任何助手或模型。其他助手不能假定兼容此执行协议。本地语音仍用已有Small CPU/INT8。详细合同见仓库 `docs/network-study-runtime.md`。候选档案保留待复核、缺项与实际阅读范围，不能将其提升为正式ready或自动放行创作/腾讯；经具体内容复核后，可用于固定选题的有限创作测试。联网与本地内容质量分开验收。
+默认codex模式配置 `CRAWL_STUDY_HOST_CLI` 为兼容Codex exec协议的绝对可执行路径；WorkBuddy选择 `CRAWL_STUDY_HOST_PROVIDER=workbuddy` 并按[协作合同](workbuddy.md)接续，无需Codex。用 `npm run doctor -- --layer=host` 检查当前路径依赖，旧 `--layer=analysis` 只用于Ollama实验分支。使用宿主现有账号和网络，不是离线，不自动安装任何助手或模型。其他助手不能假定兼容此执行协议。本地语音仍用已有Small CPU/INT8。详细合同见仓库 `docs/network-study-runtime.md`。候选档案保留待复核、缺项与实际阅读范围，不能将其提升为正式ready或自动放行创作/腾讯；经具体内容复核后，可用于固定选题的有限创作测试。联网与本地内容质量分开验收。
 
 ## 选题创作候选与四子表交付
 

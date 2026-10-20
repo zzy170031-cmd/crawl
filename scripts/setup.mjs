@@ -10,7 +10,8 @@ const envPath = value => {
 };
 
 // Never read or rewrite an existing credential file. No subprocess/network work.
-export async function setup({ root = repository, platform = process.platform } = {}) {
+export async function setup({ root = repository, platform = process.platform, hostProvider = 'codex' } = {}) {
+  if(!['codex','workbuddy'].includes(hostProvider))throw Error('不支持的宿主');
   root = resolve(root);
   const template = await readFile(join(root, '.env.example'), 'utf8');
   const python = join(root, '.venv', ...(platform === 'win32' ? ['Scripts', 'python.exe'] : ['bin', 'python']));
@@ -18,7 +19,7 @@ export async function setup({ root = repository, platform = process.platform } =
     CRAWL_PYTHON: envPath(python),
     CRAWL_WHISPER_MODEL: envPath(join(root, 'models', 'faster-whisper-small')),
   };
-  const content = template.replace(/^(CRAWL_PYTHON|CRAWL_WHISPER_MODEL)=.*$/gm, (_, key) => key + '=' + paths[key]);
+  const content = template.replace(/^CRAWL_STUDY_HOST_PROVIDER=.*$/m, 'CRAWL_STUDY_HOST_PROVIDER='+hostProvider).replace(/^(CRAWL_PYTHON|CRAWL_WHISPER_MODEL)=.*$/gm, (_, key) => key + '=' + paths[key]);
   for (const dir of ['data', 'models']) await mkdir(join(root, dir), { recursive: true });
   try {
     await writeFile(join(root, '.env'), content, { flag: 'wx', mode: 0o600 });
@@ -30,6 +31,6 @@ export async function setup({ root = repository, platform = process.platform } =
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  try { console.log(JSON.stringify(await setup(), null, 2)); }
+  try { console.log(JSON.stringify(await setup({hostProvider:process.argv.includes('--host=workbuddy')?'workbuddy':'codex'}), null, 2)); }
   catch { console.error('初始化失败，请检查仓库目录与文件权限；未覆盖已有配置。'); process.exitCode = 1; }
 }

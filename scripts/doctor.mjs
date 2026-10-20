@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { platform, arch, totalmem } from 'node:os';
-import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { config, dataDir, root } from '../app/config.mjs';
@@ -25,6 +25,12 @@ async function localChecks() {
       return { reachable: true, login_verified: false };
     },
     model: async () => { await model.identity(); return { installed: true, media_understanding_verified: false }; },
+    host: async () => {
+      if(config.studyHostProvider==='workbuddy')return {provider:'workbuddy-skill',configured:true,session_activity:'not_observed',execution_verified:false,next:'在WorkBuddy启用Skill，明确接续本轮任务；安装包或配置不证明看图与内容质量'};
+      if(config.studyHostProvider!=='codex'||!config.studyHostCLI)throw Error('missing');
+      await access(config.studyHostCLI);
+      return {provider:'codex-host',configured:true,execution_verified:false};
+    },
     ffmpeg: async () => {
       for (const tool of ['ffmpeg', 'ffprobe']) await exec(tool, ['-version'], { timeout: 5000, windowsHide: true });
       return { available: true };
@@ -49,7 +55,7 @@ async function localChecks() {
 }
 
 export async function runDoctor({ layer = 'all', probe = false, providers = { game: config.gameSource, hotspot: config.hotspotSource }, checks } = {}) {
-  if (!['all', 'collection', 'analysis', 'delivery'].includes(layer)) throw Error('layer须为all、collection、analysis或delivery');
+  if (!['all', 'collection', 'analysis', 'host', 'delivery'].includes(layer)) throw Error('layer须为all、collection、analysis、host或delivery');
   if (probe && !['all', 'analysis'].includes(layer)) throw Error('--probe只能用于analysis/all');
   checks ??= await localChecks();
   const report = { at: new Date().toISOString(), platform: platform(), arch: arch(), memory_gib: Math.round(totalmem() / 1024 ** 3), node: process.version, layers: {}, limits: ['配置检查不证明真实采集成功、模型质量或腾讯写入权限', '不下载模型、不调用红狐、不写入腾讯；--probe仅额外调用本机视觉模型'] };
@@ -68,6 +74,11 @@ export async function runDoctor({ layer = 'all', probe = false, providers = { ga
     await check('analysis', 'asr', '请核对Python依赖与多语言faster-whisper-small本地模型目录；不会自动下载');
     if (probe) await check('analysis', 'probe', '本机双色图推理未通过；请检查模型和资源');
   }
+  if(layer==='host'){
+    await check('host','host','请配置WorkBuddy协作模式或兼容Codex CLI；不会自动安装助手');
+    await check('host','ffmpeg','请安装ffmpeg与ffprobe并加入PATH');
+    await check('host','asr','请核对Python依赖与多语言Small本地目录；不会自动下载');
+  }
   if (layer === 'all' || layer === 'delivery') await check('delivery', 'tencent', '请在本机配置本人腾讯文档MCP Token；表格链接不能替代授权');
   report.ok = Object.values(report.layers).every(group => Object.values(group).every(check => check.status === 'ok'));
   return report;
@@ -81,5 +92,5 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     await writeFile(join(dataDir, 'doctor.json'), JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
-  } catch { console.error('诊断未运行；检查--layer=collection|analysis|delivery|all与本地目录权限。'); process.exitCode = 1; }
+  } catch { console.error('诊断未运行；检查--layer=collection|host|analysis|delivery|all与本地目录权限。'); process.exitCode = 1; }
 }

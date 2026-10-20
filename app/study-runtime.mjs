@@ -9,6 +9,7 @@ import {createStudyPacketBuilder} from './study-packet.mjs';
 import {createStudyReferenceReader} from './study-references.mjs';
 import {createStudyService} from './study-service.mjs';
 import {HostAssistant} from './host-assistant.mjs';
+import {WorkbuddyHost} from './workbuddy-host.mjs';
 import {runGameStudy} from './game-study.mjs';
 import {createStudyEvidenceReader} from './study-evidence-reader.mjs';
 const fail=code=>{throw Object.assign(Error(code),{code});};
@@ -20,13 +21,15 @@ function canonicalRoot(path){
  if(!stat.isDirectory()||stat.isSymbolicLink())fail('STUDY_RUNTIME_PATH_INVALID');
  return realpathSync(path);
 }
-export function createNetworkStudyRuntime({dataRoot,getCurrentCollection,readCapturedCollection,assets,localVideos,python,whisperModel,cliPath,isEnabled,readReferences,hostFactory=options=>new HostAssistant(options),mediaFactory=createStudyMedia}={}){
+export function createNetworkStudyRuntime({dataRoot,getCurrentCollection,readCapturedCollection,assets,localVideos,python,whisperModel,cliPath,hostProvider='codex',isEnabled,readReferences,hostFactory=options=>hostProvider==='workbuddy'?new WorkbuddyHost(options):new HostAssistant(options),mediaFactory=createStudyMedia}={}){
  if(typeof dataRoot!=='string'||!isAbsolute(dataRoot)||[isEnabled,hostFactory,mediaFactory].some(f=>typeof f!=='function')||readReferences!==undefined&&typeof readReferences!=='function')fail('STUDY_RUNTIME_CONFIG_INVALID');
  const root=canonicalRoot(resolve(dataRoot)),folder=safeDirectory(join(root,'game-study-tasks')),audits=safeDirectory(join(folder,'audits'));
  for(const suffix of ['','-wal','-shm']){const path=join(folder,'tasks.sqlite'+suffix);if(existsSync(path)&&(lstatSync(path).isSymbolicLink()||!lstatSync(path).isFile()||realpathSync(path)!==path))fail('STUDY_RUNTIME_PATH_INVALID');}
  const db=new Tasks(folder);let host,media,closed=false,closing;
  const configured=()=>{
-  if(closed||typeof cliPath!=='string'||!isAbsolute(cliPath)||/[\r\n\0]/.test(cliPath)||/\.(bat|cmd)$/i.test(cliPath)||typeof python!=='string'||!python.trim())return false;
+  if(closed||!['codex','workbuddy'].includes(hostProvider)||typeof python!=='string'||!python.trim())return false;
+  if(hostProvider==='workbuddy')return true;
+  if(typeof cliPath!=='string'||!isAbsolute(cliPath)||/[\r\n\0]/.test(cliPath)||/\.(bat|cmd)$/i.test(cliPath)||typeof python!=='string'||!python.trim())return false;
   try{const file=lstatSync(cliPath);if(!file.isFile()||file.isSymbolicLink())return false;accessSync(cliPath,process.platform==='win32'?constants.R_OK:constants.R_OK|constants.X_OK);return true;}catch{return false;}
  };
  function dependencies(){

@@ -2,6 +2,7 @@
 // paid acquisition, automatic retry, or delivery is reachable from this module.
 import {randomUUID} from 'node:crypto';
 import {hash} from './tasks.mjs';
+import {validHostReceipt} from './host-receipt.mjs';
 import {normalizeLocalGame} from './local-videos.mjs';
 import {CREATIVE_CANDIDATE_VERSION} from './creative-candidate.mjs';
 import {LOCAL_CREATIVE_ID,validLocalCreativeSource} from './creative-local-source.mjs';
@@ -47,7 +48,7 @@ function project(output,payload){
  const sourceBound=payload.source.provider==='local_upload'
   ? b?.source_provider==='local_upload'&&b.local_source_fingerprint===payload.source_fingerprint&&b.collection_request_id===undefined&&b.collection_fingerprint===undefined
   : b?.collection_request_id===payload.source.request_id&&b.collection_fingerprint===payload.source_fingerprint&&b.source_provider!== 'local_upload';
- if(output?.version!==CREATIVE_TASK_PIPELINE||!['needs_input','needs_review'].includes(output.status)||output.accepted!==false||output.ready!==false||output.delivery_enabled!==false||output.plan?.game!==payload.game||b?.game!==payload.game||b.mode!==payload.mode||b.format!==payload.format||b.study_task_id!==payload.study_task_id||b.profile_version!==payload.profile_version||!sourceBound||b.source_id!==payload.source.source_id||b.source_sha256!==payload.source_sha256||!SHA.test(b.input_sha256)||!SHA.test(b.attachment_sha256)||r?.provider!=='codex-host'||r.status!=='completed'||r.owned_process_closed!==true||r.exit_code!==0||r.tool_events!==0||r.exec_attempts!==1||r.runner_retries!==0||r.input_sha256!==b.input_sha256||r.creative_version!==CREATIVE_TASK_PIPELINE||hash(r.input_binding)!==hash(b)||!output.draft||hash(output.draft)!==output.draft_sha256)fail('CREATIVE_TASK_OUTPUT');
+ if(output?.version!==CREATIVE_TASK_PIPELINE||!['needs_input','needs_review'].includes(output.status)||output.accepted!==false||output.ready!==false||output.delivery_enabled!==false||output.plan?.game!==payload.game||b?.game!==payload.game||b.mode!==payload.mode||b.format!==payload.format||b.study_task_id!==payload.study_task_id||b.profile_version!==payload.profile_version||!sourceBound||b.source_id!==payload.source.source_id||b.source_sha256!==payload.source_sha256||!SHA.test(b.input_sha256)||!SHA.test(b.attachment_sha256)||!validHostReceipt(r,{inputHash:b.input_sha256})||r.creative_version!==CREATIVE_TASK_PIPELINE||hash(r.input_binding)!==hash(b)||!output.draft||hash(output.draft)!==output.draft_sha256)fail('CREATIVE_TASK_OUTPUT');
  const result={...pick(output,['version','status','accepted','ready','delivery_enabled','binding','coverage','source_reading','game_bridge','plan','draft','draft_sha256','boundary']),game:payload.game,mode:payload.mode,format:payload.format};
  noPrivate(result);result.result_version=hash(result);return result;
 }

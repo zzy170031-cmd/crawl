@@ -82,11 +82,11 @@ const db = new Tasks(),
     canRun: () => config.gameSource === 'redfox' || config.searchMode !== "automatic" || Boolean(readiness?.status().ready),
   });
 const redfoxCredentialPath=join(dataDir,'redfox-credential.json');
-const studyRuntime=createNetworkStudyRuntime({dataRoot:dataDir,python:config.python,whisperModel:config.whisperModel,cliPath:config.studyHostCLI,isEnabled:networkStudyEnabled,
+const studyRuntime=createNetworkStudyRuntime({dataRoot:dataDir,python:config.python,whisperModel:config.whisperModel,cliPath:config.studyHostCLI,hostProvider:config.studyHostProvider,isEnabled:networkStudyEnabled,
   getCurrentCollection:game=>{if(config.gameSource!=='redfox')throw Error('联网来源尚不支持学习');return bindLatestGameCollection(bridge,game);},
   readCapturedCollection:(game,id)=>readLearningSnapshot(bridge,bridge.get(id),game),assets:redfoxAssets,localVideos});
 const creativeSources=createCreativeSourceReader({bridge,localVideos});
-const creativeRuntime=createCreativeRuntime({dataRoot:dataDir,python:config.python,whisperModel:config.whisperModel,cliPath:config.studyHostCLI,isEnabled:creativeCandidateEnabled,
+const creativeRuntime=createCreativeRuntime({dataRoot:dataDir,python:config.python,whisperModel:config.whisperModel,cliPath:config.studyHostCLI,hostProvider:config.studyHostProvider,isEnabled:creativeCandidateEnabled,
   getStudyEvidence:input=>studyRuntime.readEvidence(input),
   getSource:({game,mode,provider='redfox',request_id,source_id})=>creativeSources.read(provider==='local_upload'?{game,mode,provider,source_id}:{game,mode,request_id,source_id}),assets:redfoxAssets});
 // Historical dedicated-sheet receipts remain readable; all new writes use the
