@@ -1,3 +1,11 @@
+import {candidateLearningContract,validateLearningTaskBinding,validateLearningProfile} from './learning-contract.mjs';
+// Recovery is released by capability after real-media review, never by settings.
+export const LEARNING_PIPELINE='game-learning-extractive-2';
+const LEARNING_RECOVERY_ENABLED=false; // Candidate metadata is not release acceptance.
+export function qualityCapabilities(){return {learning:{enabled:LEARNING_RECOVERY_ENABLED&&candidateLearningContract().accepted,pipeline:LEARNING_PIPELINE,candidate_contract:candidateLearningContract()},creation:{enabled:false},delivery:{enabled:false}};}
+export function qualityExecutionAllowed(capability,payload={}){
+  return capability==='learn'&&LEARNING_RECOVERY_ENABLED&&candidateLearningContract().accepted&&validateLearningTaskBinding(payload).valid;
+}
 // Server-owned hold after real summary fidelity probes failed.
 // Deliberately not configurable by environment, client input, saved settings or models.
 const HOLD=Object.freeze({
@@ -9,13 +17,14 @@ const HOLD=Object.freeze({
 export function experimentalQualityHold(){return HOLD;}
 export function projectQualityHeldProfile(profile){
   if(!profile)return profile;
-  return {...profile,status:'needs_input',experimental_quality_hold:HOLD,
+  return {...profile,status:'needs_input',experimental_quality_hold:HOLD,candidate_contract_check:validateLearningProfile(profile),
     blocking_gaps:[...new Set([...(Array.isArray(profile.blocking_gaps)?profile.blocking_gaps:[]),HOLD.reason])]};
 }
 export function qualityHoldResponse(profile){
   return {error:HOLD.reason,code:HOLD.code,experimental_quality_hold:HOLD,
     ...(profile?{profile:projectQualityHeldProfile(profile)}:{})};
 }
-export function assertQualityExecutionAllowed(){
+export function assertQualityExecutionAllowed(capability,payload){
+  if(qualityExecutionAllowed(capability,payload))return;
   const error=Error(HOLD.reason);error.code=HOLD.code;throw error;
 }

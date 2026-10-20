@@ -7,6 +7,21 @@ export const REDFOX_MEDIA_ENDPOINT = 'https://redfox.hk/story/api/parseWork/vide
 // n98-v-ncdnon was returned by saved batch receipt 7695475154498981158.
 const OBSERVED_MEDIA_HOSTS = new Set(['v5-dy-ov-experiment.zjcdn.com', 'n98-v-ncdnon.douyinvod.com']);
 const DOUYIN_VIDEO_NODE = /^v[0-9]+(?:-[a-z0-9]+)*\.douyinvod\.com$/;
+// This exact gateway/embedded origin was observed in a saved resolver receipt
+// and checked by DNS, valid HTTPS TLS and one HEAD on 2026-10-20. New gateway
+// subdomains or origin-path prefixes still require review; no suffix wildcard.
+function isReviewedMediaGateway(value,url) {
+  const host='1aaaedc3949ba59abgnd56u2vjbrmhzgoxaqn6artg4.bdcgslb.com';
+  const originPath='/v5-e.douyinvod.com/';
+  if(url.hostname!==host || !value.startsWith(`https://${host}${originPath}`) ||
+     !url.pathname.startsWith(originPath) || value.includes('#'))return false;
+  // Check the raw path as well: URL parsing normalizes ports, encoded host
+  // characters and dot segments before the downstream fetch sees the URL.
+  const rawPath=value.slice(`https://${host}`.length).split(/[?#]/,1)[0];
+  return !rawPath.includes('\\') && !/%(?:2f|5c|2e)/i.test(rawPath) &&
+    !/(?:^|\/)\.{1,2}(?:\/|$)/.test(rawPath);
+}
+
 const fail = message => {throw new RedfoxSourceError(message);};
 const iso = value => {
   const date=new Date(value);
@@ -24,7 +39,7 @@ export function validateRedfoxMediaURL(value) {
   // Accept only the documented public CDN family. Unrecognized hosts require
   // review before downloading; never follow arbitrary API URLs into localhost.
   if(url.protocol!=='https:' || url.username || url.password || url.port || url.hash ||
-     !(url.hostname.endsWith('.365yg.com') || DOUYIN_VIDEO_NODE.test(url.hostname) || OBSERVED_MEDIA_HOSTS.has(url.hostname))) fail('原片下载地址不属于已核对的HTTPS媒体域名，未下载');
+     !(url.hostname.endsWith('.365yg.com') || DOUYIN_VIDEO_NODE.test(url.hostname) || OBSERVED_MEDIA_HOSTS.has(url.hostname) || isReviewedMediaGateway(value,url))) fail('原片下载地址不属于已核对的HTTPS媒体域名，未下载');
   return url.href;
 }
 function input(row) {

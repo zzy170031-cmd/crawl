@@ -1,7 +1,8 @@
-import {experimentalQualityHold,projectQualityHeldProfile,qualityHoldResponse} from './quality-policy.mjs';
+import {serverLearningBinding} from './learning-contract.mjs';
+import {experimentalQualityHold,projectQualityHeldProfile,qualityHoldResponse,qualityCapabilities,qualityExecutionAllowed,LEARNING_PIPELINE} from './quality-policy.mjs';
 import { createServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, lstat } from "node:fs/promises";
 import { config, dataDir } from "./config.mjs";
 import {join} from 'node:path';
 import { Tasks, hash } from "./tasks.mjs";
@@ -35,6 +36,34 @@ import { redfoxAssets } from './redfox-assets.mjs';
 import { createRedfoxMediaSource } from './redfox-media-source.mjs';
 import { downloadRedfoxMedia } from './redfox-media-download.mjs';
 import { prepareRedfoxMedia } from './media.mjs';
+import {createLocalVideoStore} from './local-videos.mjs';
+import {createGameStudyInput} from './game-study-input.mjs';
+import {handleLocalVideos,localMediaCookie} from './local-video-http.mjs';
+const localVideos=createLocalVideoStore({folder:join(dataDir,'local-videos')});
+const localMediaCookieName=`crawl_local_media_${config.port}`;
+const verifiedLocalMatches=new Map();
+async function localVideosWithOrigins(game){
+ const rows=localVideos.list(game);
+ if(!rows.length)return rows;
+ const wanted=new Set(rows.map(row=>row.sha256)),matches=new Map();
+ let folders=[];try{folders=await readdir(join(dataDir,'media'),{withFileTypes:true});}catch{}
+ for(const folder of folders){
+  if(!folder.isDirectory()||!/^\d{10,25}$/.test(folder.name))continue;
+  try{
+   const dir=join(dataDir,'media',folder.name),manifest=JSON.parse(await readFile(join(dir,'redfox-asset.json'),'utf8'));
+   if(!wanted.has(manifest.source_sha256)||manifest.source_id!==folder.name)continue;
+   const path=join(dir,'redfox-source.mp4'),stat=await lstat(path);
+   if(stat.isSymbolicLink()||!stat.isFile())continue;
+   const key=hash({id:folder.name,sha:manifest.source_sha256,size:stat.size,mtime:stat.mtimeMs,ctime:stat.ctimeMs});
+   if(!verifiedLocalMatches.has(key)){
+    await redfoxAssets.read({provider:'redfox',kind:'video',source_id:folder.name,source_url:manifest.url,collection_request_id:manifest.collection_request_id,duration_ms:manifest.duration*1000});
+    verifiedLocalMatches.set(key,true);
+   }
+   const ids=matches.get(manifest.source_sha256)||[];ids.push(folder.name);matches.set(manifest.source_sha256,ids);
+  }catch{/* Unreadable source assets do not establish a duplicate link. */}
+ }
+ return rows.map(row=>({...row,matching_online_ids:matches.get(row.sha256)||[]}));
+}
 let readiness;
 const db = new Tasks(),
   store = defaultStore(),
@@ -220,12 +249,28 @@ const server = createServer(async (req, res) => {
     return json(res, 403, { error: "来源不允许" });
   const url = new URL(req.url, origin);
   try {
-    if (req.method === "GET" && url.pathname === "/api/session")
+    if (req.method === "GET" && url.pathname === "/api/session"){
+      res.setHeader('Set-Cookie',localMediaCookie(token,localMediaCookieName));
       return json(res, 200, { token });
-    if ((req.method !== "GET" || url.pathname === "/api/collector/login-view") && req.headers["x-crawl-token"] !== token)
+    }
+    const localMediaHead=req.method==='HEAD'&&/^\/api\/local-videos\/local_[a-f0-9]{64}\/media$/.test(url.pathname);
+    if (!localMediaHead && (req.method !== "GET" || url.pathname === "/api/collector/login-view") && req.headers["x-crawl-token"] !== token)
       return json(res, 403, { error: "会话过期，请刷新" });
-    if(url.pathname==='/api/quality-policy'&&req.method==='GET')return json(res,200,{experimental_quality_hold:experimentalQualityHold()});
-    if(req.method==='POST'&&['/api/creative-jobs','/api/game-research'].includes(url.pathname)){
+    if(await handleLocalVideos(req,res,url,{store:{...localVideos,list:localVideosWithOrigins},token,cookieName:localMediaCookieName}))return;
+    if(url.pathname==='/api/game-study-input'&&req.method==='POST'){
+      const input=await body(req),controller=new AbortController();
+      const cancel=()=>controller.abort();req.once('aborted',cancel);res.once('close',cancel);
+      try{
+        const prepare=createGameStudyInput({
+          getCollection:game=>{if(config.gameSource!=='redfox')throw Error('当前联网来源尚未提供可核验批次');return bindLatestGameCollection(bridge,game);},
+          listUploads:game=>localVideos.list(game),readOnline:row=>redfoxAssets.read(row),openLocal:id=>localVideos.open(id),
+        });
+        const result=await prepare(input,{signal:controller.signal});
+        return json(res,200,{...result,experimental_quality_hold:experimentalQualityHold()});
+      }finally{req.off('aborted',cancel);res.off('close',cancel);}
+    }
+    if(url.pathname==='/api/quality-policy'&&req.method==='GET')return json(res,200,{experimental_quality_hold:experimentalQualityHold(),capabilities:qualityCapabilities()});
+    if(req.method==='POST'&&(url.pathname==='/api/creative-jobs'||url.pathname==='/api/game-research'&&(!qualityCapabilities().learning.enabled||config.gameSource!=='redfox'))){
       const input=await body(req);
       return json(res,409,qualityHoldResponse(typeof input.game==='string'?db.profile(input.game.normalize('NFKC').trim()):null));
     }
@@ -355,7 +400,7 @@ const server = createServer(async (req, res) => {
       return json(
         res,
         200,
-        db.list().map((t) => ({ ...t, state_label: stages[t.state] })),
+        db.list().map((t) => ({ ...t, state_label: stages[t.state], retry_allowed:qualityExecutionAllowed(t.type,t.payload)||t.type==='create'&&Boolean(bridge.completedDelivery?.(t.id)), retry_reason:t.type==='learn'?'此任务使用旧学习管线；请在游戏广场重新点击学习游戏':'创作与文档输出仍待独立验收' })),
       );
     const taskRoute = url.pathname.match(
       /^\/api\/tasks\/([a-f0-9-]+)(?:\/(retry|cancel))?$/,
@@ -367,7 +412,7 @@ const server = createServer(async (req, res) => {
       // A verified completed receipt can be recovered read-only. No retry may
       // restart learning, model work or an unfinished delivery during the hold.
       const readOnlyRecovery = existingTask.type === 'create' && Boolean(bridge.completedDelivery?.(id));
-      if (req.method === 'POST' && action === 'retry' && ['learn','create'].includes(existingTask.type) && !readOnlyRecovery)
+      if (req.method === 'POST' && action === 'retry' && ['learn','create'].includes(existingTask.type) && !readOnlyRecovery && !qualityExecutionAllowed(existingTask.type,existingTask.payload))
         return json(res,409,qualityHoldResponse());
       const localLearning = existingTask.type === 'learn' && existingTask.payload.source_provider === 'redfox';
       if (req.method === "POST" && action === "retry" && !readOnlyRecovery && !localLearning && config.searchMode === "automatic" && !readiness.status().ready)
@@ -376,18 +421,24 @@ const server = createServer(async (req, res) => {
         return json(
           res,
           200,
+          // Retry authorization is minted by Tasks from persisted state only;
+          // no request-body token, sequence or payload is accepted here.
           action === "cancel" ? db.cancel(id) : db.retry(id),
         );
       if (req.method === "GET" && !action) return json(res, 200, db.get(id));
     }
     if (url.pathname === "/api/game-research" && req.method === "POST") {
       const input = await body(req);
+      // This legacy executor has no local-video adapter. Future gate changes
+      // must never silently reinterpret an explicit local choice as network.
+      if(input.learning_source!==undefined&&input.learning_source!=='network')
+        return json(res,409,{error:'此执行入口尚不支持所选学习来源；未创建任务',code:'LEARNING_SOURCE_UNSUPPORTED'});
       const game = gameName(input.game);
       const snapshot = config.gameSource === "redfox" ? bindLatestGameCollection(bridge, game) : null;
       const existing = db.profile(game);
       if (
         existing &&
-        existing.status === 'ready' &&
+        projectQualityHeldProfile(existing).status === 'ready' &&
         (!snapshot || existing.collection_origin?.request_id === snapshot.binding.collection_request_id) &&
         groups.independentCount(existing.relevant_video_ids || []) >= 20 &&
         Date.parse(existing.expires_at) > Date.now() &&
@@ -399,7 +450,7 @@ const server = createServer(async (req, res) => {
         202,
         db.create(
           "learn",
-          { game, ...(snapshot?.binding || {}) },
+          serverLearningBinding(snapshot),
           input.force
             ? randomUUID()
             : existing &&
@@ -411,7 +462,7 @@ const server = createServer(async (req, res) => {
                     groups.key(id),
                   ),
                 })
-              : new Date().toISOString().slice(0, 10),
+              : LEARNING_PIPELINE+':'+new Date().toISOString().slice(0, 10),
         ),
       );
     }
@@ -689,6 +740,7 @@ const server = createServer(async (req, res) => {
     }
     return json(res, 404, { error: "接口不存在" });
   } catch (e) {
+    if(url.pathname==='/api/game-study-input')return json(res,400,{error:'学习来源核验未完成：请检查所选来源中是否有当前游戏的有效记录及原片。没有开始学习或付费查询。',code:/^(GAME_STUDY_|LIBRARY_)[A-Z_]+$/.test(e.code||'')?e.code:'GAME_STUDY_INPUT_UNAVAILABLE'});
     if (url.pathname.startsWith('/api/media-acquisition'))
       return json(res,400,{error:e instanceof MediaAcquisitionError ? e.message : '原片获取操作未完成，请查看任务状态；未自动重试'});
     if (url.pathname === "/api/collector/login" && e.code === "LOGIN_CONFIRM_REQUIRED")
@@ -721,7 +773,7 @@ function stop() {
   worker.stop();
   mediaAcquisition.stop().catch(() => {});
   collector.stop().catch(() => {});
-  server.close();
+  server.close(()=>localVideos.close());
   setTimeout(() => process.exit(0), 1500).unref();
 }
 process.on("SIGINT", stop);

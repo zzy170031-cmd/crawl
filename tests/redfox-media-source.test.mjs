@@ -47,6 +47,18 @@ test('observed additional CDN hosts are exact, not suffix lookalikes',()=>{
   assert.throws(()=>receipt({code:2000,data:{videoUrl:`https://${host}.evil.test/media.mp4`}}));
  }
 });
+test('reviewed media gateway permits only its exact host and raw embedded origin',()=>{
+ const host='1aaaedc3949ba59abgnd56u2vjbrmhzgoxaqn6artg4.bdcgslb.com';
+ const url=`https://${host}/v5-e.douyinvod.com/video/file?signature=fixture`;
+ assert.equal(receipt({code:2000,data:{videoUrl:url}}).media_url,url);
+ for(const changed of [
+  url.replace(host,'other.bdcgslb.com'),url.replace(host,host+'.evil.test'),
+  url.replace('/v5-e.douyinvod.com/','/127.0.0.1/'),
+  url.replace('/v5-e.douyinvod.com/','/%76%35-e.douyinvod.com/'),
+  url.replace('/video/file','/%2e%2e/private'),url.replace('/video/file','/a/../file'),
+  url.replace(host,host+':443'),url.replace('https://1','https://%31'),url+'#',
+ ])assert.throws(()=>receipt({code:2000,data:{videoUrl:changed}}));
+});
 test('retains bounded original resolver receipt before rejecting a new host, without leaking it in public error',async()=>{
  let retained,calls=0;
  const reply={code:2000,data:{desc:'真实视频',videoUrl:'https://new-unreviewed.invalid/video?private-signature=abc',unused:'discard'}};

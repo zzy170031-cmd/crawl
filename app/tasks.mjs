@@ -14,6 +14,7 @@ export class Tasks {
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, key TEXT UNIQUE, type TEXT, state TEXT, payload TEXT, result TEXT, error TEXT, stage TEXT, owner TEXT, lease INTEGER DEFAULT 0, cancelled INTEGER DEFAULT 0, created TEXT, updated TEXT);
  CREATE TABLE IF NOT EXISTS checkpoints(key TEXT PRIMARY KEY,value TEXT);
+ CREATE TABLE IF NOT EXISTS learning_retry_authorizations(task_id TEXT NOT NULL, sequence INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, authorized_at TEXT NOT NULL, previous_state TEXT NOT NULL, previous_error TEXT, previous_result TEXT, PRIMARY KEY(task_id,sequence));
  CREATE TABLE IF NOT EXISTS profiles(game TEXT PRIMARY KEY,value TEXT);
  CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
  CREATE TABLE IF NOT EXISTS locks(key TEXT PRIMARY KEY,owner TEXT,expires INTEGER);
@@ -149,12 +150,37 @@ export class Tasks {
     return this.get(id);
   }
   retry(id) {
-    this.db
-      .prepare(
-        "UPDATE tasks SET cancelled=0,state='queued',error=NULL WHERE id=? AND state IN ('failed','needs_input','cancelled') AND owner IS NULL",
-      )
-      .run(id);
-    return this.get(id);
+    // This method represents an explicit retry action, never lease recovery.
+    // Keep authorization outside payload/result: neither HTTP input nor a new
+    // task carrying copied fields may grant another local inference attempt.
+    return this.transaction(() => {
+      const task = this.get(id);
+      if (!task || task.owner !== null || !['failed','needs_input','cancelled'].includes(task.state)) return task;
+      const p = task.payload;
+      const localLearning = task.type === 'learn' && p.source_provider === 'redfox' &&
+        ['learning_pipeline','collection_request_id','collection_fingerprint'].every(k => typeof p[k] === 'string' && p[k].length > 0);
+      const authorizedAt = new Date().toISOString();
+      const transitioned = this.db.prepare("UPDATE tasks SET cancelled=0,state='queued',error=NULL,updated=? WHERE id=? AND state IN ('failed','needs_input','cancelled') AND owner IS NULL").run(authorizedAt,id).changes;
+      if (transitioned !== 1) return this.get(id);
+      if (localLearning) {
+        const sequence = this.db.prepare('SELECT COALESCE(MAX(sequence),0)+1 AS next FROM learning_retry_authorizations WHERE task_id=?').get(id).next;
+        this.db.prepare('INSERT INTO learning_retry_authorizations VALUES(?,?,?,?,?,?,?)').run(
+          id, sequence, randomUUID(), authorizedAt, task.state, task.error,
+          task.result === null ? null : JSON.stringify(task.result),
+        );
+      }
+      return this.get(id);
+    });
+  }
+  learningRetry(id, owner) {
+    // A recovered lease sees the same token, not a fresh authorization. Stage
+    // consumers must durably consume it at most once per failed stage.
+    if (owner !== undefined) {
+      const task = this.get(id);
+      if (!task || task.state !== 'running' || task.owner !== owner) return null;
+    }
+    const row = this.db.prepare('SELECT task_id,token,sequence,authorized_at FROM learning_retry_authorizations WHERE task_id=? ORDER BY sequence DESC LIMIT 1').get(id);
+    return row ? {task_id:row.task_id,attempt_id:row.token,generation:row.sequence,authorized_at:row.authorized_at,authorization:'explicit_task_retry'} : null;
   }
   checkpoint(key, value) {
     if (value !== undefined)

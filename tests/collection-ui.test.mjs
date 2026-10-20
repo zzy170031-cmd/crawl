@@ -46,7 +46,7 @@ const gameScope={purpose:'game-research',keyword:'率土之滨'};
 const hotScope={purpose:'hotspots',keyword:'',board:1001,hours:24,category:'608'};
 function render({mode='game',rows=[],collection=null,pending=[],recent=[],redfox=false,collector={}}){
   const nodes=new Map();
-  const context={sourceMode:mode,records:rows,recordCollection:collection,cardSignature:'',bridge:{pending,recent,collector},searchBusy:false,hotspotSearchBusy:false,sourceProviders:{game:redfox?"redfox":"browser",hotspots:redfox?"redfox":"browser"},redfoxMode:()=>redfox,nextSyncAt:0,
+  const context={sourceMode:mode,records:rows,recordCollection:collection,cardSignature:'',bridge:{pending,recent,collector},searchBusy:false,hotspotSearchBusy:false,localUploadController:null,localUploadNotice:'',sourceProviders:{game:redfox?"redfox":"browser",hotspots:redfox?"redfox":"browser"},redfoxMode:()=>redfox,nextSyncAt:0,
     $:id=>{if(!nodes.has(id)) nodes.set(id,{textContent:'',checked:false,replaceChildren(){}});return nodes.get(id);},
     scope:()=>hotScope,automaticSearch:()=>true,date:x=>new Date(x).toISOString(),game:()=> '率土之滨',hotspotScopeLabel:()=> '视频总榜 · 近1天',materialCard:()=>({})};
   vm.runInNewContext(renderer+'\nrenderRecords()',context);
@@ -69,18 +69,42 @@ test('分页完成仅声明可访问页面并显示来源条数差额，不掩�
     assert.doesNotMatch(text,/全榜完成|完整采集范围尚未核验/);
   }
 });
-test('多个客户端反复刷新状态只读取本地接口，不触发来源复检',async()=>{
+test('多个客户端反复刷新状态只读取本地接口，不触发来源复检、模型或收费API',async()=>{
   const refresh=source.slice(source.indexOf('async function refreshStatus()'),source.indexOf('let changeTimer;'));
-  const calls=[];
-  const context={readiness:null,bridge:null,tasks:[],page:'discover',lastReadinessCheck:0,
-    api:async(path,body)=>{calls.push([path,body]);return path==='/api/readiness'?{ready:false,checking:false,sites:[{id:'douyin',state:'unknown'}]}:path==='/api/bridge/status'?{collector:{state:'idle'}}:[];},
-    automaticSearch:()=>true,loadProfile:async()=>{},loadRecords:async()=>{},show:()=>{},
-    renderReadiness:()=>{},renderTasks:()=>{},renderBridge:()=>{},renderGameState:()=>{},updatePageVisibility:()=>{},
-    checkReadiness:()=>{throw Error('UI polling must not probe source');}};
-  vm.runInNewContext(refresh,context);
-  await Promise.all(Array.from({length:6},()=>context.refreshStatus()));
-  assert.equal(calls.length,18);
-  assert(calls.every(([path,body])=>body===undefined && !path.endsWith('/check')));
+  const composer=source.slice(source.indexOf('function renderComposer()'),source.indexOf('function sendToTask('));
+  const profile=source.slice(source.indexOf('async function loadProfile()'),source.indexOf('async function learning()'));
+  const calls=[],target='率土之滨',profilePath='/api/game-profile?game='+encodeURIComponent(target);
+  const allowed=new Set(['/api/tasks','/api/bridge/status','/api/quality-policy','/api/readiness',profilePath]);
+  const clients=Array.from({length:6},(_,client)=>{
+    const nodes=new Map();let recordsReads=0;
+    const context={readiness:null,bridge:null,tasks:[],page:'discover',lastReadinessCheck:0,qualityCapabilities:null,currentProfile:null,gameGeneration:0,
+      api:async(path,body)=>{
+        calls.push({client,path,body});assert(allowed.has(path),'refresh must not call search, check, learning, model or paid endpoints: '+path);assert.equal(body,undefined);
+        if(path==='/api/readiness')return {ready:false,checking:false,sites:[{id:'douyin',state:'unknown'}]};
+        if(path==='/api/bridge/status')return {collector:{state:'idle'}};
+        if(path==='/api/quality-policy')return {capabilities:{creation:{enabled:false}}};
+        if(path===profilePath)return {status:'ready'};
+        return [];
+      },
+      $:id=>{if(!nodes.has(id))nodes.set(id,{value:id==='draft-source'?'saved-row':'',textContent:'',replaceChildren(...children){this.children=children;}});return nodes.get(id);},
+      Option:class{constructor(text,value){this.text=text;this.value=value;}},game:()=>target,pool:()=>[{source_id:'saved-row',title:'已选素材',collection:'games'}],rowKey:row=>row.source_id,
+      automaticSearch:()=>true,loadRecords:async()=>{recordsReads++;},show:error=>{throw error;},
+      renderReadiness:()=>{},renderTasks:()=>{},renderBridge:()=>{},renderGameState:()=>{},updatePageVisibility:()=>{},
+      checkReadiness:()=>assert.fail('UI polling must not probe source'),fetch:()=>assert.fail('UI polling must not call a remote source'),
+      requestHotspots:()=>assert.fail('UI polling must not spend'),learning:()=>assert.fail('UI polling must not run a model')};
+    vm.runInNewContext(composer+'\n'+profile+'\n'+refresh,context);
+    return {context,nodes,recordsReads:()=>recordsReads};
+  });
+  for(let round=0;round<2;round++)await Promise.all(clients.map(({context})=>context.refreshStatus()));
+  assert.equal(calls.length,60);
+  assert(calls.every(({path,body})=>body===undefined&&!path.endsWith('/check')));
+  for(const [client,{context,nodes,recordsReads}] of clients.entries()){
+    assert.deepEqual(calls.filter(c=>c.client===client).map(c=>c.path).sort(),[...allowed,...allowed].sort());
+    assert.equal(context.currentProfile.status,'ready');assert.equal(recordsReads(),2);
+    assert.equal(nodes.get('draft-source').value,'saved-row');
+    assert.equal(nodes.get('create-draft').disabled,true,'refresh must honor local quality policy despite an old ready profile');
+    assert.match(nodes.get('composer-help').textContent,/验收通过后恢复/);
+  }
 });
 test('API范围状态即使不在recent20中也显示本次失败，历史内容不隐藏错误',()=>{
   const nodes=render({rows:[old],collection:{requested_scope:gameScope,latest_request:request('a','failed','2026-10-18T02:00:00Z')}});

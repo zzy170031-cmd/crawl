@@ -29,6 +29,8 @@ let listGeneration = 0,
   polling = false;
 let destination = null;
 let sourceProviders = {game:"browser",hotspots:"browser"};
+let qualityCapabilities = null;
+let localUploadController = null, localUploadNotice = "";
 const redfoxMode = () => sourceProviders.game === "redfox" && sourceProviders.hotspots === "redfox";
 let materialHistory = false,
   materialClosing = false,
@@ -53,6 +55,20 @@ function rememberGame() {
   } catch {
     /* storage may be disabled */
   }
+}
+const learningSourceChoices=new Map();
+function learningSource(target=game()) {
+  if(learningSourceChoices.has(target))return learningSourceChoices.get(target);
+  const value=localRead("crawl-learning-source:"+target,"network");
+  const selected=value==="local"?"local":"network";
+  learningSourceChoices.set(target,selected);return selected;
+}
+function rememberLearningSource() {
+  const target=game(),value=$("learning-source").value;
+  if(!target||!["network","local"].includes(value))return;
+  learningSourceChoices.set(target,value);
+  try{localStorage.setItem("crawl-learning-source:"+target,JSON.stringify(value));}catch{}
+  // A preference change never fetches media or starts a model/query.
 }
 function safeURL(value) {
   try {
@@ -139,6 +155,38 @@ async function api(path, data, retrySession = true) {
   }
   return value;
 }
+async function uploadLocalVideos(files) {
+  if(localUploadController || !files.length)return;
+  const target=game();
+  if(!target)throw Error("请先输入目标游戏，再上传视频。");
+  if(files.length>20)throw Error("每次最多选择20个视频；可以分批上传。");
+  if(files.some(file=>file.size<=0||file.size>1024*1024*1024))throw Error("单个视频须大于0字节且不超过1GB。");
+  const controller=new AbortController();localUploadController=controller;
+  const status=$("local-upload-status");status.hidden=false;
+  $("cancel-local-upload").hidden=false;$("upload-local-video").disabled=true;
+  let saved=0,reused=0;
+  try{
+    await api("/api/local-videos?game="+encodeURIComponent(target));
+    for(let index=0;index<files.length;index++){
+      controller.signal.throwIfAborted();
+      const file=files[index];
+      status.textContent=`正在向「${target}」上传 ${index+1}/${files.length}：${file.name}；文件只保存到本机。`;
+      const params=new URLSearchParams({game:target,filename:file.name});
+      const response=await fetch("/api/local-videos?"+params,{method:"POST",headers:{"x-crawl-token":token,"Content-Type":file.type||"application/octet-stream"},body:file,signal:controller.signal});
+      const value=await response.json();
+      if(!response.ok){if(response.status===403)token="";throw Error(value.error||"上传未完成");}
+      if(value.record?.duplicate)reused++;else saved++;
+    }
+    status.textContent=`「${target}」已保存 ${saved} 条新视频，复用 ${reused} 条重复文件。未调用红狐，未自动开始学习。`;
+  }catch(error){
+    status.textContent=`${controller.signal.aborted?"已停止上传":error.message}。已确认保存 ${saved} 条、复用 ${reused} 条；未确认的文件请刷新列表核对，不会自动重试。`;
+    if(!controller.signal.aborted)show(error,true);
+  }finally{
+    localUploadController=null;$("cancel-local-upload").hidden=true;
+    $("upload-local-video").disabled=!game();
+    if(game()===target && sourceMode==="game")await loadRecords();
+  }
+}
 const date = (value) =>
   value
     ? new Date(value).toLocaleString("zh-CN", {
@@ -162,7 +210,7 @@ function renderReadiness() {
   if (!automaticSearch()) return;
   const dialog = $("readiness-dialog");
   const failed = readiness?.sites?.some((site) => (!redfoxMode() || site.id !== "tencent") && ["login_required", "verification_required", "configuration_required", "needs_config", "failed"].includes(site.state));
-  if ((!readinessEntered || failed || (!(redfoxMode() ? readiness?.collection_ready : readiness?.ready) && !readiness?.checking)) && !dialog.open) dialog.showModal();
+  if (readinessEntered !== "local" && (!readinessEntered || failed || (!(redfoxMode() ? readiness?.collection_ready : readiness?.ready) && !readiness?.checking)) && !dialog.open) dialog.showModal();
   if (readinessEntered && allConnectionsConfirmed() && dialog.open) dialog.close();
   $("readiness-check").disabled = readinessBusy;
   $("refresh-state").disabled = readinessBusy;
@@ -329,6 +377,10 @@ $("readiness-enter").onclick = () => {
   readinessEntered = true;
   $("readiness-dialog").close();
 };
+$("readiness-local").onclick=()=>{
+  readinessEntered="local";$("readiness-dialog").close();
+  show("已进入本地素材模式。联网查询需配置红狐，文档交付需确认腾讯目标；学习仍按质量状态开放。");
+};
 $("tencent-credential-form").onsubmit = async (event) => {
   event.preventDefault();
   const input = $("tencent-credential");
@@ -414,9 +466,11 @@ function renderComposer() {
   );
   if (rows.some((row) => rowKey(row) === chosen))
     $("draft-source").value = chosen;
-  $("create-draft").disabled = !game() || !$("draft-source").value;
+  $("create-draft").disabled = !qualityCapabilities?.creation?.enabled || !game() || !$("draft-source").value;
   $("composer-help").textContent = !game()
     ? "请先到游戏广场确定目标游戏。"
+    : !qualityCapabilities?.creation?.enabled
+      ? "可继续选择素材；创作与腾讯文档输出须在学习质量和方案验收通过后恢复。"
     : currentProfile?.status === "ready"
       ? `${game()} · 选择已确认选题，生成完整创作方案。`
       : `${game()} · 可先确认选题；生成方案前需完成至少20组独立内容的游戏学习。`;
@@ -481,7 +535,24 @@ async function loadRecords() {
     $("material-summary").textContent = "正在读取实际采集记录…";
   let result;
   try {
-    result = await api("/api/hotspots?" + params);
+    if(mode === "game") {
+      const [online,local] = await Promise.allSettled([
+        api("/api/hotspots?" + params),
+        api("/api/local-videos?game=" + encodeURIComponent(target)),
+      ]);
+      if(online.status === "rejected" && local.status === "rejected") throw online.reason;
+      result = online.status === "fulfilled" ? online.value : {records:[],collection:null};
+      const onlineRows = Array.isArray(result.records) ? result.records : [];
+      const query = $("query").value.trim().toLocaleLowerCase();
+      const allLocalRows = local.status === "fulfilled" && Array.isArray(local.value.records) ? local.value.records : [];
+      const localRows = allLocalRows.filter(row=>!query || String(row.title||"").toLocaleLowerCase().includes(query));
+      const linked = new Map();
+      for(const row of allLocalRows) for(const id of row.matching_online_ids || []) linked.set(id,row);
+      const shownOnline = onlineRows.map(row=>linked.has(row.source_id) ? {...row,local_upload:linked.get(row.source_id)} : row);
+      const displayed = new Set(onlineRows.map(row=>row.source_id));
+      result = {...result,records:[...shownOnline,...localRows.filter(row=>!(row.matching_online_ids||[]).some(id=>displayed.has(id)))]};
+      result.local_read_notice = [online.status === "rejected" ? "联网结果读取失败，当前仅显示已上传视频" : "",local.status === "rejected" ? "本地视频读取失败，联网结果仍保留" : ""].filter(Boolean).join("；");
+    } else result = await api("/api/hotspots?" + params);
   } catch (error) {
     if (generation === listGeneration) {
       $("material-summary").textContent =
@@ -492,6 +563,7 @@ async function loadRecords() {
   if (generation !== listGeneration || target !== game() || mode !== sourceMode)
     return;
   records = Array.isArray(result.records) ? result.records : [];
+  localUploadNotice = result.local_read_notice || "";
   recordCollection = result.collection || null;
   if (mode !== "hotspot")
     records = records.filter((row) => row.kind === "video");
@@ -540,6 +612,8 @@ function matchesCurrentSearch(r) {
     r.payload?.purpose === "game-research" && r.payload.keyword === game();
 }
 function renderRecords() {
+  $("upload-local-video").hidden = sourceMode !== "game";
+  $("upload-local-video").disabled = !game() || Boolean(localUploadController);
   if (sourceMode === "game")
     $("record-count").textContent = String(records.length);
   if (sourceMode === "hotspot")
@@ -591,16 +665,20 @@ function renderRecords() {
     sourceCount > records.length
       ? `${records.length} 组内容 · ${sourceCount} 个来源（同内容已合并）`
       : `${records.length} 条实际采集候选`;
-  const cacheInfo = latest
+  const localCount = records.filter(row=>row.provider === "local_upload" || row.local_upload).length;
+  const cacheInfo = localCount && records.every(row=>row.provider==="local_upload")
+    ? " · 本地上传时间见详情；作品发布时间未知"
+    : latest
     ? ` · 最近采集 ${date(latest)}（约 ${Math.max(0, Math.floor((Date.now() - latest) / 60000))} 分钟前）`
     : " · 采集时间未记录";
   $("material-summary").textContent =
     sourceMode === "game"
-      ? contentCount
+      ? localCount ? `${records.length} 条素材 · ${records.filter(row=>row.provider !== "local_upload").length} 条联网记录 · ${localCount} 条含本地上传（相同原片合并显示）` : contentCount
       : sourceMode === "courses"
         ? `${records.length} 条公开课程 · 来源封面与课程链接已收录`
         : `${hotspotScopeLabel()} · ${records.length} 条已采集${pending ? " · " + waitingText : ""}`;
   $("material-summary").textContent += cacheInfo;
+  if(sourceMode === "game" && localUploadNotice) $("material-summary").textContent += " · " + localUploadNotice;
   // A failed refresh must remain visible even when historical rows exist.
   // Retaining cached material does not mean the current request succeeded.
   if (failedRequest)
@@ -638,7 +716,7 @@ function renderRecords() {
   $("sync-game").textContent = pending
     ? waitingText
     : searchBusy
-      ? "正在提交…"
+      ? "核验学习来源…"
       : sourceProviders.game === "redfox" ? "开始查询" : "同步抖音";
   $("sync-status").textContent = pending
     ? automaticSearch() ? waitingText + "，完成后自动显示结果。" : "同步请求已保存，等待当前聊天中的助手操作右侧抖音。"
@@ -689,7 +767,7 @@ function materialCard(row, saved = false) {
     el(
       "div",
       row.kind === "video"
-        ? "抖音视频 · 来源记录"
+        ? row.provider === "local_upload" ? "本地上传 · 学习素材" : row.local_upload ? "联网来源 · 同时有本地原片" : "抖音视频 · 来源记录"
         : `${row.kind || "热点"} · 榜单记录`,
       "meta",
     ),
@@ -860,17 +938,25 @@ function openMaterial(row) {
   $("send-to-task").hidden = isCourse;
   $("save-topic").hidden = isCourse;
   $("detail-image").replaceChildren();
+  const local = row.provider === "local_upload" ? row : row.local_upload;
+  if(local && /^local_[a-f0-9]{64}$/.test(local.source_id)) {
+    const video=el("video","","source-preview");
+    video.controls=true;video.preload="metadata";
+    video.src=`/api/local-videos/${local.source_id}/media`;
+    $("detail-image").append(video);
+  }
   const preview = materialPreview(row);
-  if (preview) $("detail-image").append(preview);
+  if (preview && !local) $("detail-image").append(preview);
   $("detail-badge").textContent =
     row.kind === "video"
       ? "实际视频来源 · 待核验"
       : "实际热点来源 · 待关联原片";
   $("detail-title").textContent = materialText(row.title, "未提供标题");
   $("detail-desc").textContent =
-    "以下为来源页面信息，不代表已验证玩法或内容质量。原片阅读与字幕核对状态以任务证据为准；未提供核对记录时，自动语音仍为未核对。";
+    local ? "视频已保存在本机；上传不调用红狐、不自动开始学习。文件不含可核对的抖音互动和发布时间时保持未知，上传成功不代表内容质量已通过。" : "以下为来源页面信息，不代表已验证玩法或内容质量。原片阅读与字幕核对状态以任务证据为准；未提供核对记录时，自动语音仍为未核对。";
   const evidence = $("evidence-panel");
   evidence.replaceChildren();
+  if(local) evidence.append(el("p",`本地原片 · 上传 ${date(local.uploaded_at)} · ${local.has_audio ? "含音频" : "未检测到音频"} · 不以上传时间代替作品发布时间。`,"notice"));
   if(row.provider === "redfox" && row.kind === "video" && row.collection_request_id)
     evidence.append(button("获取原片 / 查看费用", () => openMediaAcquisition(row.collection_request_id,[row.source_id])));
   for (const [label, value] of [
@@ -942,14 +1028,15 @@ function renderGameState() {
     (t) => t.type === "learn" && activeStates.includes(t.state),
   );
   $("learn-game").disabled = learningBusy || Boolean(active) || !game();
+  $("learning-source").value = learningSource();
+  $("learning-source").disabled = !game();
   $("learn-game").textContent = learningBusy
     ? "正在提交…"
     : active
       ? "学习任务进行中"
-      : currentProfile
-        ? "更新学习"
-        : "学习游戏";
+      : "核对学习素材";
   $("find-game").disabled = searchBusy || !game();
+  $("upload-local-video").disabled = Boolean(localUploadController) || !game();
   $("game-status").textContent = !game()
     ? "未指定"
     : active
@@ -961,7 +1048,9 @@ function renderGameState() {
     ? `${game()} · 资料版本 ${currentProfile.version || "未记录"} · ${currentProfile.independent_content_count ?? currentProfile.relevant_video_ids?.length ?? 0} 组独立内容 · 更新 ${date(currentProfile.created_at)}。${currentProfile.readiness_note || ""}${currentProfile.expires_at && Date.parse(currentProfile.expires_at) < Date.now() ? "资料已到期，请更新学习。" : ""}`
     : active
       ? `${game()} · ${active.stage || "等待执行"}。任务详情展示实际读取情况。`
-      : "查找游戏素材从抖音搜索获取该游戏视频；学习游戏会实际读取素材，不能仅凭标题完成。";
+      : "可联网查询，或上传本地视频保存为学习素材；上传不调用红狐，学习与创作仍分别核验质量。";
+  if(qualityCapabilities?.learning?.enabled)$("game-help").textContent+=' 初学整理主题、范围与借鉴笔记；重点拆解与交付另行验收。';
+  else $("game-help").textContent+=' 先选择学习来源；当前仅可核对已保存素材，正式学习尚未恢复。两类素材都会保留。';
   $("douyin-login").href = game()
     ? `https://www.douyin.com/search/${encodeURIComponent(game())}?type=video`
     : "https://www.douyin.com/";
@@ -979,20 +1068,17 @@ async function loadProfile() {
 }
 async function learning() {
   if (!game() || learningBusy) return;
+  const target=game(),source=learningSource(target),generation=gameGeneration;
+  // Capture the explicit choice before the first await; later UI edits cannot
+  // change the source/game of this check. No legacy task endpoint is invoked.
+  const request={game:target,learning_source:source};
   learningBusy = true;
   renderGameState();
   try {
-    const result = await api("/api/game-research", {
-      game: game(),
-      force: Boolean(currentProfile),
-    });
-    show(
-      result.profile
-        ? "已有可用游戏资料。"
-        : sourceProviders.game === "redfox" ? "本地学习任务已提交，进度和待补充内容会显示在任务详情中。" : "学习任务已提交。等待助手的步骤请在当前聊天中继续执行。",
-    );
-    await refreshStatus();
-    switchPage("tasks");
+    const result=await api("/api/game-study-input",request);
+    if(target!==game()||generation!==gameGeneration)return;
+    const label=source==="local"?"本地视频":"联网视频";
+    show(`「${target}」${label}来源已核验：${result.coverage.selected_candidates} 条候选，${result.coverage.available_originals} 条可读原片，${result.coverage.unavailable_originals} 条缺原片。未开始学习、查询或解析；正式学习仍待验收。`);
   } finally {
     learningBusy = false;
     renderGameState();
@@ -1075,13 +1161,14 @@ function renderTasks() {
             await refreshStatus();
           }),
         );
-      if (["failed", "needs_input", "cancelled"].includes(t.state))
+      if (["failed", "needs_input", "cancelled"].includes(t.state) && t.retry_allowed)
         actions.append(
           button("补充条件后重试", async () => {
             await api(`/api/tasks/${t.id}/retry`, {});
             await refreshStatus();
           }),
         );
+      else if(["failed", "needs_input", "cancelled"].includes(t.state)&&t.retry_reason)actions.append(el("span",t.retry_reason,"muted"));
       card.append(actions);
       return card;
     }),
@@ -1172,18 +1259,24 @@ function renderTaskDetail(t) {
         const speech =
           coverage.speech === "automatic_transcript_unverified"
             ? "自动转写，尚未核对"
-            : coverage.speech === "full_audio_machine_transcription_with_subtitle_point_checks"
+            : ["full_audio_machine_transcription_with_subtitle_point_checks","full_audio_machine_transcription_with_subtitle_alignment"].includes(coverage.speech)
             ? "完整音轨机器转写，不代表完整声音理解"
             : coverage.speech === "no_speech_detected"
             ? "未识别出语音，不代表已理解全部声音"
             : coverage.speech || "未提供语音读取状态";
         const visual = coverage.visual === "uniform_sampled_frames"
           ? `${coverage.sample_count} 张均匀抽帧，未连续观看全部动作`
+          : coverage.visual === "uniform_plus_asr_cue_frames"
+          ? `${coverage.base_sample_count} 张均匀抽帧与 ${coverage.cue_sample_count} 张线索补帧，未连续观看全部动作`
           : coverage.visual || "未提供读取范围";
         const subtitles = item.subtitle_review?.status === "machine_subtitle_point_checked"
           ? `机器点核，有依据的纠词 ${item.subtitle_review.term_corrections?.length || 0} 项；其余转写未核验，未经人工复核`
+          : item.subtitle_review?.status === "aligned_raw_evidence"
+          ? "同期字幕与原始语音并列保留，尚未自动纠词"
           : coverage.subtitle_verification || "未提供核对记录";
-        const summaryQuality = item.summary_quality?.status === "consistent"
+        const summaryQuality = item.summary_quality?.status === "source_bound"
+          ? "按原始文字证据整理；标签为机器初判，未经人工全面复核"
+          : item.summary_quality?.status === "consistent"
           ? "抽样OCR与原始ASR机器核对通过；纯画面叙事、动作与构图未复核"
           : item.summary_quality?.status === "needs_review"
           ? "待核验，不计入有效初学"
@@ -1195,7 +1288,13 @@ function renderTaskDetail(t) {
             "notice",
           ),
         );
-        for (const observation of item.analysis?.observations || []) {
+        if(item.pipeline_version==='extractive-learning-1'){
+          root.append(el("p",item.learning_card?.summary||"尚无可用主题"));
+          addJSON(root,"范围与限制原文",{scope:item.scope,conditions:item.condition_context});
+          addJSON(root,"初步借鉴笔记（本项目判断）",item.learning_notes||[]);
+          addJSON(root,"展开机器画面观察（可能有误）",item.analysis?.observations||[]);
+        }
+        for (const observation of item.pipeline_version==='extractive-learning-1'?[]:item.analysis?.observations || []) {
           const line = el("div", "", "evidence-row");
           line.append(
             el("span", `${observation.time} 秒`),
@@ -1246,7 +1345,7 @@ function renderTaskDetail(t) {
       },
       "primary",
     );
-    approve.disabled = !destination;
+    approve.disabled = !qualityCapabilities?.delivery?.enabled || !destination;
     actions.append(approve);
     root.append(actions);
   } else if (request?.state === "approved")
@@ -1276,7 +1375,9 @@ async function refreshStatus() {
     api("/api/tasks"),
     api("/api/bridge/status"),
     loadProfile(),
+    api("/api/quality-policy"),
   ]);
+  qualityCapabilities=results[3].status==='fulfilled'?results[3].value.capabilities:null;
   if (results[0].status === "fulfilled") tasks = results[0].value;
   if (results[1].status === "fulfilled") bridge = results[1].value;
   else {
@@ -1294,6 +1395,7 @@ async function refreshStatus() {
   renderTasks();
   renderBridge();
   renderGameState();
+  renderComposer();
   if (page !== "tasks") await loadRecords();
   updatePageVisibility();
 }
@@ -1340,6 +1442,7 @@ $("target-game").addEventListener("input", () => {
   );
 });
 $("learn-game").onclick = () => learning().catch((e) => show(e, true));
+$("learning-source").onchange = () => rememberLearningSource();
 $("find-game").onclick = $("sync-game").onclick = () =>
   searchGame().catch((e) => show(e, true));
 $("auto-sync").onchange = () => {
@@ -1350,6 +1453,12 @@ $("target-game").onkeydown = (event) => {
   if (event.key === "Enter" && sourceProviders.game !== "redfox") searchGame().catch((e) => show(e, true));
 };
 $("game-source").onclick = () => setSource("game");
+$("upload-local-video").onclick=()=>$("local-video-files").click();
+$("local-video-files").onchange=event=>{
+  const files=Array.from(event.target.files||[]);event.target.value="";
+  uploadLocalVideos(files).catch(error=>show(error,true));
+};
+$("cancel-local-upload").onclick=()=>localUploadController?.abort();
 $("courses-source").onclick = () => setSource("courses");
 $("open-rankings").onclick = () => {
   $("connection-dialog").close();
@@ -1468,6 +1577,7 @@ $("save-topic").onclick = () => {
   }
 };
 $("create-draft").onclick = async () => {
+  if(!qualityCapabilities?.creation?.enabled)return;
   const b = $("create-draft");
   b.disabled = true;
   try {
@@ -1486,7 +1596,7 @@ $("create-draft").onclick = async () => {
   } catch (e) {
     show(e, true);
   } finally {
-    b.disabled = false;
+    renderComposer();
   }
 };
 $("connection-button").onclick = () => $("connection-dialog").showModal();
@@ -1553,6 +1663,7 @@ materialDialog.addEventListener("cancel", (event) => {
   closeMaterial();
 });
 materialDialog.addEventListener("close", () => {
+  for(const video of $("detail-image").querySelectorAll("video")){video.pause();video.removeAttribute("src");video.load();}
   if (materialHistory && history.state?.crawlMaterial) {
     materialClosing = true;
     history.back();

@@ -41,6 +41,7 @@ export const config = {
   cdp: localURL(process.env.CRAWL_CDP_URL || "http://127.0.0.1:19327"),
   modelURL: localURL(process.env.CRAWL_MODEL_URL || "http://127.0.0.1:11434"),
   model: process.env.HOTSPOT_VISION_MODEL || "qwen3-vl:8b-instruct",
+  analysisModel: process.env.HOTSPOT_ANALYSIS_MODEL || process.env.HOTSPOT_VISION_MODEL || "qwen3-vl:8b-instruct",
   python:
     process.env.CRAWL_PYTHON ||
     (process.platform === "win32" ? "python" : "python3"),

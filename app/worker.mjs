@@ -1,3 +1,4 @@
+import {assertLearningTaskBinding} from './learning-contract.mjs';
 import {experimentalQualityHold,projectQualityHeldProfile,assertQualityExecutionAllowed} from './quality-policy.mjs';
 import { randomUUID } from "node:crypto";
 import { Model } from "./model.mjs";
@@ -77,6 +78,10 @@ export function startWorker(
       bridge,
       browserMode,
       taskId: task.id,
+      taskOwner: owner,
+      // Server-owned explicit retry grant; never use similarly named payload
+      // fields or reviewRevision (which also changes on automatic recovery).
+      learningRetry: task.type === 'learn' ? db.learningRetry(task.id, owner) : null,
       reviewRevision: randomUUID(),
     };
     const bridgeSearch = (args) =>
@@ -110,20 +115,22 @@ export function startWorker(
         );
         return;
       }
-      if(task.type==='create'||task.type==='learn')assertQualityExecutionAllowed();
+      if(task.type==='create'||task.type==='learn')assertQualityExecutionAllowed(task.type,task.payload);
       const learningSnapshot = task.type === "learn" && (gameProvider === "redfox" || task.payload.source_provider === "redfox")
         ? resolveBoundGameCollection(bridge,task.payload) : null;
-      ctx.identity = await model.identity();
+      if(task.type==='learn'&&(!learningSnapshot||typeof preliminaryLearning!=='function'))throw new NeedsInput('新版初步学习需要完整的红狐采集绑定与本地证据执行器；未回退到旧学习');
       const game = task.payload.game;
       if (learningSnapshot && preliminaryLearning) {
+        assertLearningTaskBinding(task.payload,learningSnapshot);
         const profile = projectQualityHeldProfile(await preliminaryLearning(learningSnapshot, {
-          ...ctx, game, groups,
+          ...ctx, game, groups, learningTaskBinding:task.payload,
           saveProgress: result => db.db.prepare("UPDATE tasks SET result=? WHERE id=? AND owner=? AND state='running'").run(JSON.stringify(result),task.id,owner),
         }));
         db.profile(game,profile);
         db.finish(task.id,owner,profile.status === 'ready' ? 'completed' : 'needs_input',profile,profile.status === 'ready' ? null : profile.blocking_gaps.join('；'));
         return;
       }
+      ctx.identity = await model.identity();
       const p = task.payload;
       const requiredVideos = 20;
       const targetVideos = 30;
