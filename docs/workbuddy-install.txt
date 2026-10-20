@@ -14,8 +14,10 @@ https://www.workbuddy.cn/
 2. WorkBuddy 技能包 ZIP（下载后保留 ZIP，不必自己解压）：
 https://raw.githubusercontent.com/zzy170031-cmd/crawl/main/dist/douyin-hotspot-game-creation-workbuddy.zip
 
-3. 完整创作台源码 ZIP（下载后解压）：
-https://github.com/zzy170031-cmd/crawl/archive/refs/heads/main.zip
+3. 完整创作台源码 ZIP（直连下载，下载后解压）：
+https://codeload.github.com/zzy170031-cmd/crawl/zip/refs/heads/main
+
+如果直连仍无法下载，可进入下面的仓库主页，点击绿色“Code”→“Download ZIP”；也可请分享者直接转发完整源码ZIP。解压后的 dist 文件夹内已经包含 Skill 安装包 douyin-hotspot-game-creation-workbuddy.zip，不必再单独联网下载技能包。
 
 仓库主页：
 https://github.com/zzy170031-cmd/crawl
