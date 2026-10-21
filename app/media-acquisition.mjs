@@ -5,13 +5,14 @@ import {replayRedfoxHotspotResult} from './redfox-hotspot-source.mjs';
 import {parseRedfoxMediaReceipt} from './redfox-media-source.mjs';
 import {RedfoxSourceError} from './redfox-error.mjs';
 import {RedfoxAssetError} from './redfox-assets.mjs';
+import {checkMediaTools,MediaToolsError} from './media-tools.mjs';
 export class MediaAcquisitionError extends Error {}
 const fail=message=>{throw new MediaAcquisitionError(message);};
 const missing=e=>e instanceof RedfoxAssetError && e.message.startsWith('这条视频尚未取得');
 const LOCK='redfox-media-acquisition';
 // This queue owns original-file acquisition only. It never runs models, searches,
 // transcript review or publication. Quotes and status reads are always free.
-export function createMediaAcquisition({db,bridge,assets,resolver,download,prepare=async()=>{},clock=()=>Date.now(),pollMs=750,autoStart=true}={}){
+export function createMediaAcquisition({db,bridge,assets,resolver,download,prepare=async()=>{},preflight=checkMediaTools,clock=()=>Date.now(),pollMs=750,autoStart=true}={}){
  db.db.exec(`CREATE TABLE IF NOT EXISTS media_quotes(id TEXT PRIMARY KEY,request_id TEXT,fingerprint TEXT,selection_key TEXT,scope TEXT,max_requests INTEGER,state TEXT,created_at INTEGER,expires_at INTEGER,renew INTEGER DEFAULT 0);
  CREATE TABLE IF NOT EXISTS media_items(quote_id TEXT,source_id TEXT,row_json TEXT,state TEXT,attempts INTEGER DEFAULT 0,receipt TEXT,error TEXT,owner TEXT,lease INTEGER DEFAULT 0,PRIMARY KEY(quote_id,source_id));`);
  if(!db.db.prepare('PRAGMA table_info(media_quotes)').all().some(column=>column.name==='renew')) db.db.exec('ALTER TABLE media_quotes ADD COLUMN renew INTEGER DEFAULT 0');
@@ -57,6 +58,9 @@ export function createMediaAcquisition({db,bridge,assets,resolver,download,prepa
    }
    planned.push({row,state,error,receipt});
   }
+  // Starting the webpage is not dependency acceptance. Verify binaries in the
+  // same Node process before creating a quote that could authorize payment.
+  if(planned.some(r=>['queued','cached'].includes(r.state)))await preflight();
   const id=randomUUID(),budget=planned.filter(r=>r.state==='queued'&&!r.receipt).length;
   db.transaction(()=>{
    db.db.prepare('INSERT INTO media_quotes(id,request_id,fingerprint,selection_key,scope,max_requests,state,created_at,expires_at,renew) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id,request_id,fingerprint,selectionKey,JSON.stringify({game:result.observed_scope.keyword||null,purpose:request.payload.purpose,category:result.observed_scope.category||null,board:request.payload.board||null,start_date:result.observed_scope.start_date,end_date:result.observed_scope.end_date,collected_at:result.searched_at}),budget,'quoted',at(),at()+15*60000,renew?1:0);
@@ -91,6 +95,9 @@ export function createMediaAcquisition({db,bridge,assets,resolver,download,prepa
   };
   const heartbeat=setInterval(renewLease,1000);
   try {
+   // Recheck after approval in case availability changed. Failure here is
+   // terminal and must precede any new resolver request or download.
+   await preflight();controller.signal.throwIfAborted();
    let asset;
    try{asset=await assets.read(row);}catch(e){if(!missing(e))throw e;}
    controller.signal.throwIfAborted();
@@ -123,7 +130,7 @@ export function createMediaAcquisition({db,bridge,assets,resolver,download,prepa
    await prepare(row,{signal:controller.signal});controller.signal.throwIfAborted();finish(item,'ready');
   } catch(e){
    const cancelled=controller.signal.aborted;
-   const message=cancelled?'已停止，已尝试的解析可能计费，未自动重试':e instanceof MediaAcquisitionError||e instanceof RedfoxSourceError||e instanceof RedfoxAssetError?String(e.message).slice(0,500):'原片获取未完成；未自动重试或重新解析，请查看状态后手动处理';
+   const message=cancelled?'已停止，已尝试的解析可能计费，未自动重试':e instanceof MediaAcquisitionError||e instanceof RedfoxSourceError||e instanceof RedfoxAssetError||e instanceof MediaToolsError?String(e.message).slice(0,500):'原片获取未完成；未自动重试或重新解析，请查看状态后手动处理';
    finish(item,cancelled?(stopped?'interrupted':'cancelled'):'failed',message);
   } finally{clearInterval(heartbeat);await cleanup?.().catch(()=>{});active=null;}
  }

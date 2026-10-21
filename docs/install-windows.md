@@ -16,7 +16,7 @@ Set-Location crawl
 npm.cmd ci
 py -3.12 -m venv .venv
 & .\.venv\Scripts\python.exe -m pip install -r requirements-media.txt
-node scripts/setup.mjs
+node scripts/setup.mjs --host=workbuddy
 ```
 
 只有 Python 3.11 时将 `py -3.12` 改为 `py -3.11`。不需要激活虚拟环境，也不需要放宽 PowerShell 执行策略。`setup` 将新 `.env` 的 Python 路径指向本仓库 `.venv/Scripts/python.exe`；已有 `.env` 保持不变，换目录后手动修正路径。不会自动下载依赖、模型或覆盖密钥。
@@ -39,11 +39,11 @@ node scripts/setup.mjs
 
 ## 启动与检查
 
-只有选择旧 Ollama 实验路径时才启动它；当前新入口使用 `CRAWL_STUDY_HOST_CLI` 指定的兼容宿主。
+WorkBuddy模式使用 `CRAWL_STUDY_HOST_PROVIDER=workbuddy`，无需Codex CLI；默认兼容Codex模式才配置 `CRAWL_STUDY_HOST_CLI`。FFmpeg和ffprobe必须都显示版本号，网页能打开不能代替这项验收。Windows安装或修改PATH后，保存任务并停止后台、完全重开WorkBuddy和终端再启动，避免后台沿用旧环境。具体步骤见[FFmpeg修复说明](windows-ffmpeg-fix.txt)。
 
 ```powershell
 npm.cmd run doctor -- --layer=collection
-npm.cmd run doctor -- --layer=analysis
+npm.cmd run doctor -- --layer=host
 npm.cmd run doctor -- --layer=delivery
 npm.cmd start
 ```

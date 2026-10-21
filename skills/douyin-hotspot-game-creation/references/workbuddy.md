@@ -31,6 +31,8 @@ Node.js24+、Python3.11/3.12、FFmpeg/ffprobe 是运行组件，不是AI模型�
 4. 用 `npm run doctor -- --layer=host` 检查当前宿主、FFmpeg与Small；不要以旧路径的 `--layer=analysis` 要求继续下载Ollama视觉模型。诊断只检查依赖，不能验证WorkBuddy会话或内容质量。`npm start` 保持运行，按实际输出地址打开页面。上传/采集、学习候选、创作候选和腾讯交付分别验证；不以“已配置”替代真实可用。
 5. 只有用户明确要求 WorkBuddy 接续本轮网页启动的学习/创作时，才执行下述协作。用户需要知道必须保持 WorkBuddy 本轮会话在处理；关闭助手后不会无人值守完成。后台不假定 WorkBuddy 有 CLI 或可唤醒空闲会话。
 
+FFmpeg安装验收必须在启动后台的实际环境验证 `ffmpeg -version` 与 `ffprobe -version` 都成功；Windows修改PATH后需保存任务、停止后台并完全重开WorkBuddy/终端。不能以安装命令结束、文件已解压或网页能打开代替验证。缺少时停止原片获取，不重试付费解析，修复见仓库 `docs/windows-ffmpeg-fix.txt`。
+
 缺依赖先报告具体缺口。已下载兼容 Small 可复用；确需下载时先说明官方地址与大小，未获用户授权不安装模型。此适配在开发电脑未作 WorkBuddy 客户端实测；协议校验通过不等于客户端安装、实际看图或内容质量已通过。
 
 ## 领取、阅读与回交

@@ -32,6 +32,7 @@ import { createRedfoxRuntime,redfoxCredentialReader,saveRedfoxCredential } from 
 import { redfoxGameScope, createRedfoxGameSource } from './redfox-game-source.mjs';
 import { REDFOX_HOTSPOT_CATEGORIES, redfoxHotspotScope, createRedfoxHotspotSource } from './redfox-hotspot-source.mjs';
 import { createMediaAcquisition, MediaAcquisitionError } from './media-acquisition.mjs';
+import {MediaToolsError} from './media-tools.mjs';
 import { redfoxAssets } from './redfox-assets.mjs';
 import { createRedfoxMediaSource } from './redfox-media-source.mjs';
 import { downloadRedfoxMedia } from './redfox-media-download.mjs';
@@ -766,7 +767,7 @@ const server = createServer(async (req, res) => {
   } catch (e) {
     if(url.pathname==='/api/game-study-input')return json(res,400,{error:'学习来源核验未完成：请检查所选来源中是否有当前游戏的有效记录及原片。没有开始学习或付费查询。',code:/^(GAME_STUDY_|LIBRARY_)[A-Z_]+$/.test(e.code||'')?e.code:'GAME_STUDY_INPUT_UNAVAILABLE'});
     if (url.pathname.startsWith('/api/media-acquisition'))
-      return json(res,400,{error:e instanceof MediaAcquisitionError ? e.message : '原片获取操作未完成，请查看任务状态；未自动重试'});
+      return json(res,e instanceof MediaToolsError?409:400,{error:e instanceof MediaAcquisitionError||e instanceof MediaToolsError ? e.message : '原片获取操作未完成，请查看任务状态；未自动重试',...(e instanceof MediaToolsError?{code:e.code,missing_tools:e.issues}: {})});
     if (url.pathname === "/api/collector/login" && e.code === "LOGIN_CONFIRM_REQUIRED")
       return json(res, 409, {error:"请先回创作台确认当前平台连接，再登录另一个平台",code:"LOGIN_CONFIRM_REQUIRED"});
     if (["/api/collector/login-input", "/api/collector/login-view", "/api/collector/resume", "/api/readiness/check"].includes(url.pathname)) {

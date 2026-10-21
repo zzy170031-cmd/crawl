@@ -19,7 +19,7 @@ async function setup(t,overrides={},rowCount=3) {
  const source=createRedfoxGameSource({apiKey:'fixture',clock:()=>request.created_at,fetch:async()=>({status:200,redirected:false,text:async()=>JSON.stringify({code:2000,data:{list:rows,total:rowCount,pageNum:1,pageSize:50}})})});
  bridge.fulfill(request.id,{request_id:request.id,task_id:null,result:await source.collect(request.payload)});
  const counts={resolve:0,download:0,import:0,prepare:0,cleanup:0},available=new Set();
- const options={db,bridge,autoStart:false,assets:{read:async row=>available.has(row.source_id)?{verified:true}:missing(),importLocal:async row=>{counts.import++;available.add(row.source_id);}},resolver:{resolve:async row=>{counts.resolve++;return {response:{fixture:true},source_id:row.source_id,started_at:request.created_at,received_at:request.created_at};}},download:async()=>{counts.download++;return {sourcePath:'fixture-only',cleanup:async()=>{counts.cleanup++;}};},prepare:async()=>{counts.prepare++;},...overrides};
+ const options={db,bridge,autoStart:false,preflight:async()=>{},assets:{read:async row=>available.has(row.source_id)?{verified:true}:missing(),importLocal:async row=>{counts.import++;available.add(row.source_id);}},resolver:{resolve:async row=>{counts.resolve++;return {response:{fixture:true},source_id:row.source_id,started_at:request.created_at,received_at:request.created_at};}},download:async()=>{counts.download++;return {sourcePath:'fixture-only',cleanup:async()=>{counts.cleanup++;}};},prepare:async()=>{counts.prepare++;},...overrides};
  const manager=createMediaAcquisition(options);t.after(async()=>{await manager.stop();db.close();await rm(folder,{recursive:true,force:true});});
  const ids=rows.map(r=>r.videoId);
  return {db,bridge,manager,options,counts,available,request,ids,quote:extra=>manager.quote({request_id:request.id,source_ids:ids,...extra}),start:q=>manager.start({quote_id:q.id,user_initiated:true,max_requests:q.max_requests})};
@@ -144,4 +144,15 @@ test('confirmed twenty-item budget remains usable after quote window but has a f
  const started=h.start(q);assert.equal(Date.parse(started.expires_at)-now,120*60000);assert.equal(started.max_requests,20);
  now+=16*60000;for(let i=0;i<20;i++)await h.manager.tick();assert.equal(h.manager.status(q.id).state,'completed');assert.equal(h.counts.resolve,20);
  const oldDeadline=h.manager.status(q.id).expires_at;now+=1000;h.start(q);assert.equal(h.manager.status(q.id).expires_at,oldDeadline);assert.equal(h.counts.resolve,20);
+});
+
+test('missing media tools reject quote before any resolver/download or new quote is created',async t=>{
+ const {MediaToolsError}=await import('../app/media-tools.mjs');const h=await setup(t,{preflight:async()=>{throw new MediaToolsError([{tool:'ffmpeg',reason:'ENOENT'},{tool:'ffprobe',reason:'ENOENT'}]);}});
+ await assert.rejects(h.quote(),{code:'MEDIA_TOOLS_UNAVAILABLE'});assert.equal(h.counts.resolve,0);assert.equal(h.counts.download,0);assert.equal(h.db.db.prepare('SELECT COUNT(*) AS n FROM media_quotes').get().n,0);
+});
+test('tools disappearing after quote fail before new paid parsing and do not replay on poll',async t=>{
+ const {MediaToolsError}=await import('../app/media-tools.mjs');let checks=0;const h=await setup(t,{preflight:async()=>{checks++;if(checks>1)throw new MediaToolsError([{tool:'ffprobe',reason:'ENOENT'}]);}});const q=await h.quote({source_ids:[h.ids[0]]});h.start(q);await h.manager.tick();await h.manager.tick();const state=h.manager.status(q.id);assert.equal(state.state,'partial');assert.equal(state.attempted_requests,0);assert.equal(h.counts.resolve,0);assert.equal(h.counts.download,0);assert.match(state.items[0].error,/ffprobe/);assert.equal(checks,2);
+});
+test('cached resolver receipt with no raw media still requires available tools before free retry',async t=>{
+ const {MediaToolsError}=await import('../app/media-tools.mjs');let unavailable=false;const h=await setup(t,{preflight:async()=>{if(unavailable)throw new MediaToolsError([{tool:'ffmpeg',reason:'ENOENT'}]);},download:async()=>{throw Error('controlled first failure');}});const q=await h.quote({source_ids:[h.ids[0]]});h.start(q);await h.manager.tick();assert.equal(h.counts.resolve,1);unavailable=true;await assert.rejects(h.quote({source_ids:[h.ids[0]]}),{code:'MEDIA_TOOLS_UNAVAILABLE'});assert.equal(h.counts.resolve,1);assert.equal(h.counts.download,0);
 });

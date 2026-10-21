@@ -64,7 +64,7 @@ WorkBuddy 模式不要求安装 Ollama、Qwen3-VL 8B、Qwen3.5 9B/27B 或 Qwen3 
 - FFmpeg和ffprobe：https://ffmpeg.org/download.html
 - Git：仅选择git clone下载源码时需要，使用上面的源码ZIP可不装Git。
 
-FFmpeg安装后，ffmpeg和ffprobe命令都应能在终端运行。已有环境先检查，不要重复安装。不要在安装时为了兼容而直接使用更新的Python大版本，先按3.11/3.12准备。
+FFmpeg安装后，ffmpeg和ffprobe命令都应能在终端运行。 两条都要显示版本号才算安装验证通过；仅网页启动成功不代表这项依赖已满足。Windows安装或修改PATH后，保存任务并停止后台、完全退出WorkBuddy和旧终端，再重新打开启动。具体修复见同目录windows-ffmpeg-fix.txt。已有环境先检查，不要重复安装。不要在安装时为了兼容而直接使用更新的Python大版本，先按3.11/3.12准备。
 
 四、安装并初始化创作台
 

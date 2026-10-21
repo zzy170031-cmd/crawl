@@ -1,0 +1,51 @@
+Windows 10：ffmpeg／ffprobe 找不到的修复步骤
+
+适用现象：PowerShell提示无法将“ffmpeg”或“ffprobe”识别为命令。
+这表示该终端无法找到程序，可能尚未安装，也可能未加入PATH。网页和红狐搜索能打开，不代表原片检查、抽帧和音轨提取已经可用。这一步不需要下载Qwen模型。
+
+一、可以直接发给WorkBuddy
+
+请修复这台Windows 10电脑的FFmpeg依赖。先检查是否已存在ffmpeg.exe和ffprobe.exe，已有就复用，不要重复安装。如确实没有，请从FFmpeg官网列出的Windows构建下载页 https://www.gyan.dev/ffmpeg/builds/ 获取release essentials ZIP，解压到固定目录。确认同一个bin目录中包含ffmpeg.exe与ffprobe.exe，保留原有PATH，只将这个bin目录追加到当前用户PATH，不要整体覆盖PATH。安装后验证两个程序可执行，并明确提醒我保存任务、停止创作台后台、完全退出WorkBuddy与旧终端，再重新打开启动；安装前已经运行的后台不会自动继承新的PATH。用新环境启动创作台后核验原片获取前检查。不要调用红狐收费查询或重新解析视频，不下载其他模型，不读取或显示Key、Token和完整.env。若遇到权限或下载失败，报告实际情况，不直接声称安装完成。
+
+二、手动操作
+
+1. 打开官方下载页列出的Windows构建：
+https://www.gyan.dev/ffmpeg/builds/
+选择release builds中的ffmpeg-release-essentials.zip。
+该构建页说明适用Windows 10及以上，包含ffmpeg与ffprobe。
+FFmpeg官网入口：https://ffmpeg.org/download.html
+
+2. 解压到固定位置。举例：整理后让下面两个文件实际存在：
+C:\Tools\ffmpeg\bin\ffmpeg.exe
+C:\Tools\ffmpeg\bin\ffprobe.exe
+
+如果解压后还有一层版本号文件夹，以实际包含这两个exe的bin目录为准。不要只添加ZIP所在目录。
+
+3. 按Win键，搜索“编辑账户的环境变量”，打开后在用户变量中找到Path，点“编辑”→“新建”，添加实际的bin目录。例如：
+C:\Tools\ffmpeg\bin
+
+保留所有原有条目，确定保存。不要用一个新路径覆盖整个Path。
+
+4. 保存当前任务，停止创作台后台；完全退出WorkBuddy和旧终端，然后重新打开WorkBuddy及PowerShell。已有后台进程不会自动读取新PATH。
+
+5. 在新PowerShell中逐行执行：
+ffmpeg -version
+ffprobe -version
+
+两条都必须显示版本号。如果仍“无法识别”，检查添加的bin路径是否确实包含两个exe。也可在PowerShell用完整路径检查，例如：
+& "C:\Tools\ffmpeg\bin\ffmpeg.exe" -version
+& "C:\Tools\ffmpeg\bin\ffprobe.exe" -version
+
+完整路径能运行、短命令不能运行，说明PATH仍未生效；完整路径也不能运行，则检查解压位置、程序架构或系统报错，不要重复执行原片解析。
+
+6. 在新环境中进入crawl仓库目录，执行：
+npm.cmd run doctor -- --layer=host
+npm.cmd start
+
+doctor还会检查语音依赖；Small错误属于后续转写依赖，不要据此去安装Qwen。
+
+7. 重新进入创作台，优先选择失败任务的“重试前查看费用”。确认已有回执及预算后再决定是否获取。不要直接点击“重新解析链接”，因为它可能再次计费。
+
+三、程序更新说明
+
+2026-10-21新版已在原片报价和每条执行前检查当前后台进程的ffmpeg／ffprobe。缺少时显示明确提示，阻止新增解析请求。旧版本不会自动获得修复；请更新源码后重启。更新时保留自己的.env、data和models，不要复制其他人的运行目录。程序检查通过仍不保证视频CDN下载或后续内容质量通过。
